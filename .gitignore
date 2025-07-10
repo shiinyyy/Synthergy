@@ -1,0 +1,117 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual Environments
+ydata/
+3.12/
+venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Jupyter Notebook
+.ipynb_checkpoints
+*.ipynb
+
+# Environment variables
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# AWS
+AWSCLIV2.pkg
+*.pem
+*.key
+
+# Generated Reports and Data
+*.html
+*.pdf
+*.png
+*.jpg
+*.jpeg
+*.gif
+
+# Temporary files
+*.tmp
+*.temp
+update_result.txt
+stack_events.txt
+stack_status.txt
+
+# Docker
+*.dockerfile
+build_docker.sh
+docker/
+
+# Lambda and AWS
+lambda_functions/
+bucket-policy.json
+
+# Local models and data
+.local_models/
+data/
+datasets/
+
+# Logs
+*.log
+logs/
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Shell scripts (except essential ones)
+run_synthergy.sh
+
+# Large sample files
+Global_Energy_Consumption.html
+energy_report_with_comparison.html
+synthetic_data_report.pdf
+index.html
+
+# Full requirements and extra docs
+requirements_full.txt
+README_STREAMLIT.md
+
+# Keep only essential files:
+# - app.py (main Streamlit app)
+# - streamlit_modules.py (core functionality)
+# - requirements.txt (minimal dependencies)
+# - README.md (documentation)
+# - .streamlit/ (Streamlit config) 

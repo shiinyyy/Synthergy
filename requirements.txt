@@ -1,0 +1,24 @@
+# Core Streamlit Application
+streamlit>=1.25.0
+
+# Data Science & Analysis
+pandas>=2.0.0
+numpy>=1.24.0
+scikit-learn>=1.0.0
+scipy>=1.10.0
+
+# Visualization
+matplotlib>=3.7.0
+plotly>=5.0.0
+umap-learn>=0.5.0
+
+# Data Processing
+openpyxl>=3.1.0
+
+# PDF Generation (optional)
+weasyprint>=60.0
+
+# YData Synthesis (if available)
+# ydata-sdk>=3.0.0
+# Note: YData SDK might not be publicly available
+# The app includes fallback statistical synthesis 
