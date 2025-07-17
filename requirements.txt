@@ -18,7 +18,6 @@ openpyxl>=3.1.0
 # PDF Generation (optional)
 weasyprint>=60.0
 
-# YData Synthesis (if available)
-# ydata-sdk>=3.0.0
-# Note: YData SDK might not be publicly available
-# The app includes fallback statistical synthesis 
+# YData Synthesis (not publicly available - using fallback methods)
+# ydata-sdk>=3.0.0  # Commented out - not available in public PyPI
+# The app includes statistical synthesis fallback 

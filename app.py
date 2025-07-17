@@ -3,12 +3,6 @@ import pandas as pd
 import numpy as np
 import io
 import zipfile
-from ydata_profiling import ProfileReport
-from weasyprint import HTML
-import matplotlib.pyplot as plt
-from sklearn.decomposition import PCA
-from sklearn.manifold import TSNE
-import umap
 
 # Import our Streamlit-compatible modules
 try:
@@ -16,7 +10,8 @@ try:
         generate_synthetic_data,
         generate_enhanced_html_report,
         generate_comparison_visualizations,
-        calculate_quality_metrics
+        calculate_quality_metrics,
+        show_data_comparison_table
     )
 except ImportError as e:
     st.error(f"Error importing modules: {e}")
@@ -355,6 +350,7 @@ def show_data_generation():
                 
                 # Column selection
                 selected_columns = st.multiselect("Select columns", df.columns.tolist(), default=df.columns.tolist()[:5])
+                st.session_state['selected_columns'] = selected_columns
                 
                 if selected_columns:
                     display_data = df[selected_columns].copy()
@@ -391,6 +387,8 @@ def show_data_generation():
                     ["Auto", "TabularGAN", "CTGAN", "CopulaGAN"],
                     help="Auto selects the best model for your data"
                 )
+                # Store selection
+                st.session_state['synthesis_model'] = model_type
                 
                 random_seed = st.number_input(
                     "Random Seed (for reproducibility)",
@@ -451,7 +449,8 @@ def show_data_generation():
                         }
                         
                         # Generate synthetic data using YData (following reference implementation)
-                        synthetic_df = generate_synthetic_data(df, params)
+                        selected_data = df[selected_columns] if selected_columns else df
+                        synthetic_df = generate_synthetic_data(selected_data, params)
                         
                         # Check if generation was successful
                         if synthetic_df is None:
@@ -465,6 +464,9 @@ def show_data_generation():
                         st.session_state['synthetic_data'] = synthetic_df
                         
                         st.success("Synthetic data generated successfully!")
+                        
+                        # Show data comparison table
+                        show_data_comparison_table(df, synthetic_df)
                         
                         # Download options
                         st.write("### Download Synthetic Data")
@@ -515,7 +517,7 @@ def show_data_generation():
                             mean_pres = "95%"
                             std_pres = "92%"
                             corr_pres = "89%"
-                        else:  # High
+                        else:  
                             mean_pres = "90%"
                             std_pres = "87%"
                             corr_pres = "82%"
@@ -564,7 +566,9 @@ def show_report_generation_page():
     with col2:
         st.metric("Synthetic Rows", len(synthetic_data))
     with col3:
-        st.metric("Columns", len(original_data.columns))
+        selected_columns = st.session_state.get('selected_columns', original_data.columns.tolist())
+        columns_used = len(selected_columns)
+        st.metric("Columns", columns_used)
     with col4:
         ratio = len(synthetic_data) / len(original_data) if len(original_data) > 0 else 0
         st.metric("Size Ratio", f"{ratio:.2f}x")
@@ -629,7 +633,9 @@ def show_report_generation_page():
                     original_data, 
                     synthetic_data,
                     title=report_title,
-                    use_bedrock=use_bedrock_analysis
+                    use_bedrock=use_bedrock_analysis,
+                    selected_columns=st.session_state.get('selected_columns'),
+                    synthesis_model=st.session_state.get('synthesis_model', 'Auto')  # Default to 'Auto' if not set
                 )
                 
                 st.session_state['html_report'] = html_report
@@ -888,15 +894,12 @@ def show_report_preview(quality_metrics, visualizations):
             st.metric("Synthetic Rows", "N/A")
     
     with col2:
-        if original_data is not None:
-            st.metric("Columns", len(original_data.columns))
-            if synthetic_data is not None:
-                ratio = len(synthetic_data) / len(original_data) if len(original_data) > 0 else 0
-                st.metric("Row Ratio", f"{ratio:.2f}x")
-            else:
-                st.metric("Row Ratio", "0.00x")
+        selected_columns = st.session_state.get('selected_columns', original_data.columns.tolist())
+        st.metric("Columns", len(selected_columns))
+        if synthetic_data is not None:
+            ratio = len(synthetic_data) / len(original_data) if len(original_data) > 0 else 0
+            st.metric("Row Ratio", f"{ratio:.2f}x")
         else:
-            st.metric("Columns", "N/A")
             st.metric("Row Ratio", "0.00x")
     
     # Show quality metrics if available
@@ -926,19 +929,19 @@ def show_report_preview(quality_metrics, visualizations):
         
         with tabs[0]:
             if 'distributions' in visualizations:
-                st.markdown("✅ Distribution comparison visualization included.")
+                st.markdown("Distribution comparison visualization included.")
             else:
                 st.info("Distribution comparison not available.")
         
         with tabs[1]:
             if 'correlations' in visualizations:
-                st.markdown("✅ Correlation analysis included.")
+                st.markdown("Correlation analysis included.")
             else:
                 st.info("Correlation analysis not available.")
         
         with tabs[2]:
             if 'dimensionality_reduction' in visualizations:
-                st.markdown("✅ PCA, t-SNE, UMAP analysis included.")
+                st.markdown("PCA, t-SNE, UMAP analysis included.")
                 # Show a small preview of the dimensionality reduction plot if available
                 if isinstance(visualizations['dimensionality_reduction'], str):
                     st.image(f"data:image/png;base64,{visualizations['dimensionality_reduction']}")

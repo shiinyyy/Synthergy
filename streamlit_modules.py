@@ -105,7 +105,7 @@ def preprocess_data(data):
     
     return data_processed
 
-def generate_synthetic_data(data: pd.DataFrame, params: Dict) -> pd.DataFrame:
+def generate_synthetic_data(data: pd.DataFrame, params: Dict, selected_columns: list = None) -> pd.DataFrame:
     """Generate synthetic data using YData's approach with fallback to simple statistical synthesis"""
     try:
         if data is None or data.empty:
@@ -114,7 +114,16 @@ def generate_synthetic_data(data: pd.DataFrame, params: Dict) -> pd.DataFrame:
             
         # Preprocess the data following the reference pattern
         data_processed = preprocess_data(data)
-        print(f"Attempting YData synthesis with {len(data_processed)} rows...")
+        # Use selected columns if provided
+        if selected_columns is not None:
+            # Filter to only use selected columns that exist in the processed data
+            available_columns = [col for col in selected_columns if col in data_processed.columns]
+            if available_columns:
+                data_processed = data_processed[available_columns]
+            else:
+                print("Warning: None of the selected columns found in processed data, using all columns")
+                
+        print(f"Attempting data synthesis with {len(data_processed)} rows...")
         
         # Try YData approach first
         try:
@@ -122,7 +131,7 @@ def generate_synthetic_data(data: pd.DataFrame, params: Dict) -> pd.DataFrame:
             from ydata.metadata import Metadata
             from ydata.synthesizers.regular import RegularSynthesizer
             
-            # Create YData Dataset
+            # Create dataset
             dataset = Dataset(data_processed)
             
             # Create metadata
@@ -144,12 +153,12 @@ def generate_synthetic_data(data: pd.DataFrame, params: Dict) -> pd.DataFrame:
                 # Fallback to extracting data
                 synthetic_data = synthetic_dataset.data if hasattr(synthetic_dataset, 'data') else synthetic_dataset
                 
-            print("✅ YData synthesis successful!")
+            print("Data synthesis successful!")
             print("Synthetic data shape:", synthetic_data.shape)
             return synthetic_data
             
         except Exception as ydata_error:
-            print(f"YData synthesis failed: {ydata_error}")
+            print(f"Data synthesis failed: {ydata_error}")
             print("Falling back to statistical synthesis...")
             
             # Fallback: Statistical synthesis using ORIGINAL data (not preprocessed)
@@ -157,11 +166,11 @@ def generate_synthetic_data(data: pd.DataFrame, params: Dict) -> pd.DataFrame:
             synthetic_data = statistical_synthesis_fallback(data, num_samples)
             
             if synthetic_data is not None:
-                print("✅ Fallback synthesis successful!")
+                print("Fallback synthesis successful!")
                 print("Synthetic data shape:", synthetic_data.shape)
                 return synthetic_data
             else:
-                print("❌ Both YData and fallback synthesis failed")
+                print("Both data and fallback synthesis failed")
                 return None
         
     except Exception as e:
@@ -306,8 +315,8 @@ def generate_comparison_visualizations(original_data: pd.DataFrame, synthetic_da
                     fontsize=20, fontweight='bold', y=0.98)
         
         # Add subtitle
-        fig.text(0.5, 0.94, 'Comparison: Original vs Synthetic Data', 
-                ha='center', va='center', fontsize=14, style='italic')
+        # fig.text(0.5, 0.94, 'Comparison: Original vs Synthetic Data', 
+        #         ha='center', va='center', fontsize=14, style='italic')
         
         # Define colors matching the reference
         original_color = '#d62728'  # Red for original
@@ -327,7 +336,7 @@ def generate_comparison_visualizations(original_data: pd.DataFrame, synthetic_da
         ax1.scatter(pca_synthetic[:, 0], pca_synthetic[:, 1], 
                    c=synthetic_color, alpha=0.6, s=20, label='Synthetic', edgecolors='none')
         
-        ax1.set_title('PCA Analysis\nVariance: {:.1%}, {:.1%}'.format(
+        ax1.set_title('PCA\nVariance: {:.1%}, {:.1%}'.format(
             pca.explained_variance_ratio_[0], pca.explained_variance_ratio_[1]), 
             fontsize=12, fontweight='bold')
         ax1.set_xlabel('PC 1 ({:.1%} variance)'.format(pca.explained_variance_ratio_[0]))
@@ -359,7 +368,7 @@ def generate_comparison_visualizations(original_data: pd.DataFrame, synthetic_da
         ax2.scatter(tsne_synthetic[:, 0], tsne_synthetic[:, 1], 
                    c=synthetic_color, alpha=0.6, s=20, label='Synthetic', edgecolors='none')
         
-        ax2.set_title('t-SNE Analysis\nPerplexity: {}'.format(perplexity), 
+        ax2.set_title('t-SNE\nPerplexity: {}'.format(perplexity), 
                      fontsize=12, fontweight='bold')
         ax2.set_xlabel('t-SNE 1')
         ax2.set_ylabel('t-SNE 2')
@@ -385,7 +394,7 @@ def generate_comparison_visualizations(original_data: pd.DataFrame, synthetic_da
         ax3.scatter(umap_synthetic[:, 0], umap_synthetic[:, 1], 
                    c=synthetic_color, alpha=0.6, s=20, label='Synthetic', edgecolors='none')
         
-        ax3.set_title('UMAP Analysis\nNeighbors: {}'.format(n_neighbors), 
+        ax3.set_title('UMAP\nNeighbors: {}'.format(n_neighbors), 
                      fontsize=12, fontweight='bold')
         ax3.set_xlabel('UMAP 1')
         ax3.set_ylabel('UMAP 2')
@@ -495,10 +504,8 @@ def generate_comparison_visualizations(original_data: pd.DataFrame, synthetic_da
     return visualizations
 
 
-def analyze_data_with_bedrock(original_data: pd.DataFrame, synthetic_data: pd.DataFrame) -> str:
-    """
-    Generate detailed analysis using AWS Bedrock Claude model
-    """
+def analyze_data_with_bedrock(original_data: pd.DataFrame, synthetic_data: pd.DataFrame, synthesis_model: str = "Auto") -> str:
+    """Generate detailed analysis using AWS Bedrock Claude model"""
     try:
         import boto3
         import json
@@ -512,7 +519,7 @@ def analyze_data_with_bedrock(original_data: pd.DataFrame, synthetic_data: pd.Da
         # Prepare data summary for analysis
         orig_summary = {
             'rows': len(original_data),
-            'columns': len(original_data.columns),
+            'columns': len(original_data.columns), # Use original column count
             'column_types': original_data.dtypes.astype(str).to_dict(),
             'missing_values': original_data.isnull().sum().to_dict(),
             'numeric_stats': original_data.describe().to_dict() if len(original_data.select_dtypes(include=['number']).columns) > 0 else {}
@@ -520,10 +527,11 @@ def analyze_data_with_bedrock(original_data: pd.DataFrame, synthetic_data: pd.Da
         
         synth_summary = {
             'rows': len(synthetic_data),
-            'columns': len(synthetic_data.columns),
+            'columns': len(synthetic_data.columns), # Use synthetic column count
             'column_types': synthetic_data.dtypes.astype(str).to_dict(),
             'missing_values': synthetic_data.isnull().sum().to_dict(),
-            'numeric_stats': synthetic_data.describe().to_dict() if len(synthetic_data.select_dtypes(include=['number']).columns) > 0 else {}
+            'numeric_stats': synthetic_data.describe().to_dict() if len(synthetic_data.select_dtypes(include=['number']).columns) > 0 else {},
+            'synthesis_model': synthesis_model  # Include the synthesis model used
         }
         
         prompt = f"""
@@ -547,7 +555,7 @@ def analyze_data_with_bedrock(original_data: pd.DataFrame, synthetic_data: pd.Da
            - What privacy level would you assign (Low/Medium/High protection)?
 
         3. **Synthetic Data Generation Process**:
-           - Based on the data characteristics, what generation method likely worked best?
+           - Evaluate the effectiveness of using the {synthesis_model} model for this data
            - What challenges might have occurred during synthesis?
            - How could the generation process be improved?
 
@@ -560,6 +568,7 @@ def analyze_data_with_bedrock(original_data: pd.DataFrame, synthetic_data: pd.Da
            - Specific suggestions for improving the synthetic data quality
            - Best practices for using this synthetic data
            - Potential risks and mitigation strategies
+           - Would a different synthesis model be more suitable? If so, why? (skip this if user selects auto)
 
         Format your response in HTML with proper headings and structure for inclusion in a report.
         """
@@ -594,7 +603,7 @@ def analyze_data_with_bedrock(original_data: pd.DataFrame, synthetic_data: pd.Da
         fallback_analysis = generate_comprehensive_analysis(original_data, synthetic_data)
         return f"""
         <div style="background: #fff3cd; padding: 10px; border-radius: 5px; border-left: 4px solid #ffc107; margin: 10px 0;">
-            <p><strong>Note:</strong> AI-powered analysis temporarily unavailable. Using comprehensive built-in analysis instead.</p>
+            <p><strong>Note:</strong> Smart analysis temporarily unavailable. Using built-in analysis instead.</p>
         </div>
         {fallback_analysis}
         """
@@ -639,7 +648,7 @@ def generate_comprehensive_analysis(original_data: pd.DataFrame, synthetic_data:
     
     # Privacy assessment
     analysis += """
-    <h4>3. Privacy Protection Assessment</h4>
+    <h4>3. Privacy Assessment</h4>
     <ul>
         <li><strong>Method:</strong> Gaussian Mixture Model synthesis provides medium-level privacy protection</li>
         <li><strong>Re-identification Risk:</strong> Low to Medium (depends on data sensitivity and uniqueness)</li>
@@ -671,7 +680,7 @@ def generate_comprehensive_analysis(original_data: pd.DataFrame, synthetic_data:
     return analysis
 
 
-def generate_data_comparison_table(original_data: pd.DataFrame, synthetic_data: pd.DataFrame) -> str:
+def generate_data_comparison_table(original_data: pd.DataFrame, synthetic_data: pd.DataFrame, selected_columns: list = None) -> str:
     """
     Generate HTML comparison table showing original vs synthetic data side by side
     """
@@ -679,6 +688,11 @@ def generate_data_comparison_table(original_data: pd.DataFrame, synthetic_data: 
         # Format data for display
         original_display = original_data.copy()
         synthetic_display = synthetic_data.copy()
+        
+        # Use selected columns if provided
+        if selected_columns and len(selected_columns) > 0:
+            original_display = original_display[selected_columns]
+            synthetic_display = synthetic_display[selected_columns]
         
         # Handle data type formatting
         for col in original_display.columns:
@@ -694,90 +708,120 @@ def generate_data_comparison_table(original_data: pd.DataFrame, synthetic_data: 
                 if col in synthetic_display.columns:
                     synthetic_display[col] = synthetic_display[col].round(2)
         
-        # Limit to first 20 rows for display
-        original_sample = original_display.head(10)
-        synthetic_sample = synthetic_display.head(10)
+        # Limit to first 100 rows for display
+        original_sample = original_display.head(100)
+        synthetic_sample = synthetic_display.head(100)
         
-        # Create HTML table
-        comparison_html = """
-        <div style="display: flex; gap: 20px; margin: 20px 0;">
-            <div style="flex: 1;">
-                <h4 style="color: #d62728; text-align: center; margin-bottom: 15px;">Original Data Sample</h4>
-                <div style="overflow-x: auto; max-height: 400px; border: 1px solid #dee2e6; border-radius: 5px;">
-        """
-        
-        # Add original data table
-        comparison_html += original_sample.to_html(
+        # Build original data table HTML
+        original_table_html = original_sample.to_html(
             classes='table table-striped table-hover',
             table_id='original-table',
             escape=False,
-            index=True
+            index=True,
+            border=0
         )
         
-        comparison_html += """
-                </div>
-            </div>
-            <div style="flex: 1;">
-                <h4 style="color: #1f77b4; text-align: center; margin-bottom: 15px;">Synthetic Data Sample</h4>
-                <div style="overflow-x: auto; max-height: 400px; border: 1px solid #dee2e6; border-radius: 5px;">
-        """
-        
-        # Add synthetic data table
-        comparison_html += synthetic_sample.to_html(
+        # Build synthetic data table HTML
+        synthetic_table_html = synthetic_sample.to_html(
             classes='table table-striped table-hover',
             table_id='synthetic-table',
             escape=False,
-            index=True
+            index=True,
+            border=0
         )
         
-        comparison_html += """
+        # Create the complete HTML
+        comparison_html = f"""
+        <div style="margin: 20px 0;">
+            <div style="display: flex; gap: 20px; align-items: flex-start;">
+                <div style="flex: 1; min-width: 0;">
+                    <h4 style="color: #d62728; text-align: center; margin-bottom: 15px;">Original</h4>
+                    <div style="max-height: 500px; overflow: auto; border: 1px solid #dee2e6; border-radius: 5px;">
+                        {original_table_html}
+                    </div>
+                </div>
+                <div style="flex: 1; min-width: 0;">
+                    <h4 style="color: #1f77b4; text-align: center; margin-bottom: 15px;">Synthetic</h4>
+                    <div style="max-height: 500px; overflow: auto; border: 1px solid #dee2e6; border-radius: 5px;">
+                        {synthetic_table_html}
+                    </div>
                 </div>
             </div>
         </div>
-        
-        <style>
-            .table {
-                width: 100%;
-                margin-bottom: 0;
-                font-size: 12px;
-            }
-            .table th, .table td {
-                padding: 8px;
-                text-align: right;
-                border-top: 1px solid #dee2e6;
-            }
-            .table th {
-                background-color: #f8f9fa;
-                font-weight: bold;
-                border-bottom: 2px solid #dee2e6;
-            }
-            .table-striped tbody tr:nth-of-type(odd) {
-                background-color: rgba(0,0,0,.05);
-            }
-            .table-hover tbody tr:hover {
-                background-color: rgba(0,0,0,.075);
-            }
-        </style>
         """
         
         return comparison_html
         
     except Exception as e:
         print(f"Error generating comparison table: {e}")
+        import traceback
+        traceback.print_exc()
         return f"<p>Error generating comparison table: {str(e)}</p>"
 
+def show_data_comparison_table(df, synthetic_df, selected_columns=None):
+    st.write("### Data Comparison")
+    
+    # Use selected columns if provided, otherwise use all columns
+    if selected_columns and len(selected_columns) > 0:
+        original_display = df[selected_columns].copy()
+        synthetic_display = synthetic_df[selected_columns].copy()
+    else:
+        original_display = df.copy()
+        synthetic_display = synthetic_df.copy()
+    
+    # Handle data type formatting
+    for col in original_display.columns:
+        if 'year' in col.lower() or 'date' in col.lower():
+            # Keep year columns as integers
+            if original_display[col].dtype in ['float64', 'float32']:
+                original_display[col] = original_display[col].round().astype('Int64')
+            if col in synthetic_display.columns and synthetic_display[col].dtype in ['float64', 'float32']:
+                synthetic_display[col] = synthetic_display[col].round().astype('Int64')
+        elif original_display[col].dtype in ['float64', 'float32']:
+            # Format other numeric columns to 2 decimal places
+            original_display[col] = original_display[col].round(2)
+            if col in synthetic_display.columns:
+                synthetic_display[col] = synthetic_display[col].round(2)
+    
+    # Show first 100 rows
+    original_sample = original_display.head(100)
+    synthetic_sample = synthetic_display.head(100)
+    
+    # Create two columns for side-by-side display (same as View Data Sample)
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.markdown("#### Original")
+        st.dataframe(original_sample)
+    
+    with col2:
+        st.markdown("#### Synthetic")
+        st.dataframe(synthetic_sample)
 
 def generate_enhanced_html_report(
     original_data: pd.DataFrame, 
     synthetic_data: pd.DataFrame,
     title: str = "Synthetic Data Quality Report",
-    use_bedrock: bool = False
+    use_bedrock: bool = True,
+    selected_columns: list = None,
+    synthesis_model: str = "Auto"
 ) -> str:
-    """Generate comprehensive HTML report with YData analysis and optional Bedrock insights"""
+    """Generate comprehensive HTML report with Bedrock analysis"""
     try:
-        # Preprocess both datasets using the same preprocessing function
+        # First determine the number of columns to be used
+        if selected_columns is not None and len(selected_columns) > 0:
+            # User selection
+            columns_used = len(selected_columns)
+        else:
+            # If no selection, use all columns
+            columns_used = len(original_data.columns)
+
+        # Then preprocess the filtered data
         data_processed = preprocess_data(original_data)
         synth_data_processed = preprocess_data(synthetic_data)
+
+        # Display columns used
+        display_columns = columns_used 
         
         # Generate comprehensive visualizations first
         visualizations = generate_comparison_visualizations(original_data, synthetic_data)
@@ -785,28 +829,27 @@ def generate_enhanced_html_report(
         # Calculate quality metrics
         quality_metrics = calculate_quality_metrics(original_data, synthetic_data)
         
-        # Generate YData report
+        # Generate data report
         ydata_html = "<p>Statistical analysis completed - synthetic data shows high quality preservation of original patterns</p>"
         ydata_report = None
         
-        # Try YData report generation (optional enhancement)
+        # Try data report generation (optional enhancement)
         try:
             # Only attempt if we have properly shaped data
             if data_processed.shape[0] > 0 and synth_data_processed.shape[0] > 0:
-                # Skip YData report for now due to compatibility issues
+                # Skip data report for now due to compatibility issues
                 # Instead provide statistical summary
                 statistical_summary = f"""
                 <div style="background: #f8f9fa; padding: 15px; border-radius: 8px; margin: 10px 0;">
-                    <h4>Statistical Analysis Summary</h4>
-                    <p><strong>Data Quality:</strong> Synthetic data maintains statistical properties of original dataset</p>
-                    <p><strong>Feature Preservation:</strong> All {len(data_processed.columns)} numeric features preserved</p>
+                    <p><strong>Quality:</strong> Synthetic data maintains statistical properties of original dataset</p>
+                    <p><strong>Feature Preservation:</strong> All {columns_used} features preserved</p>
                     <p><strong>Distribution Matching:</strong> Mean and variance patterns closely replicated</p>
                     <p><strong>Privacy Protection:</strong> No direct copying - all values are statistically generated</p>
                 </div>
                 """
                 ydata_html = statistical_summary
         except Exception as e:
-            print(f"YData report generation skipped: {e}")
+            print(f"Data report generation skipped: {e}")
             ydata_html = "<p>Basic statistical analysis completed successfully</p>"
             
         # Extract the HTML if it's available
@@ -819,19 +862,19 @@ def generate_enhanced_html_report(
                 elif isinstance(ydata_report, str):
                     ydata_html = ydata_report
                 else:
-                    ydata_html = "<p>YData report generated successfully</p>"
+                    ydata_html = "<p>Data report generated successfully</p>"
             except Exception as extract_error:
                 print(f"HTML extraction warning: {extract_error}")
-                ydata_html = "<p>YData report generated (HTML extraction failed)</p>"
+                ydata_html = "<p>Data report generated (HTML extraction failed)</p>"
         
         # Generate Bedrock analysis if requested
         bedrock_analysis = ""
         if use_bedrock:
             try:
-                bedrock_analysis = analyze_data_with_bedrock(original_data, synthetic_data)
+                bedrock_analysis = analyze_data_with_bedrock(original_data, synthetic_data, synthesis_model)
             except Exception as e:
                 print(f"Bedrock analysis warning: {e}")
-                bedrock_analysis = "<p>Bedrock analysis not available</p>"
+                bedrock_analysis = "<p>Bedrock not available</p>"
         
         # Create comprehensive HTML report
         html_report = f"""
@@ -923,11 +966,11 @@ def generate_enhanced_html_report(
             <div class="container">
                 <div class="header">
                     <h1>{title}</h1>
-                    <p style="color: #6c757d; font-size: 1.1em;">Comprehensive Analysis of Synthetic Data Quality</p>
+                    <p style="color: #6c757d; font-size: 1.1em;">Comprehensive Analysis Report of Synthetic Data</p>
                 </div>
                 
                                   <div class="metrics">
-                     <h2 style="color: black; border-bottom: 2px solid black;">Quality & Privacy Summary</h2>
+                     <h2 style="color: black; border-bottom: 2px solid black;">Summary</h2>
                      <div class="quality-grid">
                          <div class="quality-card">
                              <h3 style="color: black; margin: 0;">Original Events</h3>
@@ -943,25 +986,25 @@ def generate_enhanced_html_report(
                          </div>
                          <div class="quality-card">
                              <h3 style="color: black; margin: 0;">Features</h3>
-                             <p style="font-size: 1.5em; margin: 5px 0; color: black;">{len(original_data.columns)}</p>
+                             <p style="font-size: 1.5em; margin: 5px 0; color: black;">{display_columns}</p>
                          </div>
                      </div>
                   </div>
                 
                                   <div class="section">
-                     <h2 style="color: black;">1. Data Processing Pipeline</h2>
-                    <p><strong>Preprocessing Summary:</strong> Your data has been automatically preprocessed using advanced techniques:</p>
+                     <h2 style="color: black;">Data Processing Pipeline</h2>
+                    <p><strong>Preprocessing Summary:</strong> Your data has been automatically preprocessed</p>
                     <ul>
-                        <li><strong>Categorical Encoding:</strong> Binary and multi-class variables properly encoded using LabelEncoder</li>
-                        <li><strong>Missing Value Handling:</strong> Smart imputation - 'Unknown' for categorical, median for numeric</li>
-                        <li><strong>Data Type Optimization:</strong> Efficient float32 representations for consistency</li>
-                        <li><strong>Quality Validation:</strong> Comprehensive data integrity checks and validation</li>
+                        <li><strong>Categorical Encoding</strong></li><p>Binary and multi-class variables properly encoded using LabelEncoder<p>
+                        <li><strong>Missing Value Handling</strong></li><p>Smart imputation - 'Unknown' for categorical, median for numeric<p>
+                        <li><strong>Data Type Optimization</strong></li><p>Efficient data type representations for consistency<p>
+                        <li><strong>Quality Validation</strong></li><p>Comprehensive data integrity checks and validation<p>
                     </ul>
-                    <p><strong>Processed Data Shape:</strong> {data_processed.shape[0]:,} rows × {data_processed.shape[1]} features</p>
+                    <p><strong>Processed Data Shape:</strong> {data_processed.shape[0]:,} rows × {display_columns} columns</p>
                 </div>
                 
                                   <div class="section">
-                     <h2 style="color: black;">2. Statistical Quality Assessment</h2>
+                     <h2 style="color: black;">Statistical Quality Assessment</h2>
                     <p><strong>Distribution Analysis:</strong> Comprehensive comparison of statistical properties between original and synthetic datasets.</p>
                     <p><strong>Key Metrics:</strong> Mean preservation, standard deviation preservation, and correlation structure maintenance have been evaluated to ensure high-quality synthetic data generation.</p>
                     <p><strong>Quality Score:</strong> The synthetic data demonstrates strong statistical fidelity to the original dataset across all measured dimensions.</p>
@@ -1002,10 +1045,10 @@ def generate_enhanced_html_report(
                 </div>
             """
         
-        # Add YData section
+        # Add statistical summary section
         html_report += f"""
                   <div class="ydata-section">
-                     <h2 style="color: black;">YData Synthetic Report Analysis</h2>
+                     <h2 style="color: black;">Synthetic Report</h2>
                     {ydata_html}
                 </div>
         """
@@ -1021,73 +1064,6 @@ def generate_enhanced_html_report(
                 </div>
             """
         
-        # Add comprehensive analysis matching the best practice format from the images
-        html_report += f"""
-                <div class="section">
-                    <h2 style="color: black;">3. Synthetic Data Generation Process</h2>
-                    
-                    <p><strong>Advanced Statistical Methods:</strong> The synthetic data generation employs 
-                    sophisticated statistical techniques including Gaussian mixture modeling and advanced 
-                    embedding techniques - Possible use of GAN or VAE for maintaining 
-                    relationships between fields</p>
-                    
-                    <p><strong>Improvement Opportunities:</strong> - Implementation of proper data typing 
-                    (especially for dates and monetary values) - Addition of noise or perturbation 
-                    techniques for sensitive fields - Enhanced preservation of temporal 
-                    relationships between dates</p>
-                </div>
-                
-                <div class="section">
-                    <h2 style="color: black;">4. Utility vs Privacy Trade-off</h2>
-                    
-                    <p><strong>Suitable Use Cases:</strong> - Training machine learning models for project planning
-                    - General analysis of project distributions and patterns - Testing and
-                    development environments</p>
-                    
-                    <p><strong>Limitations:</strong> - May not preserve exact temporal relationships - Potentially
-                    reduced accuracy in value estimations - Limited utility for precise project-
-                    specific analysis</p>
-                </div>
-                
-                <div class="section">
-                    <h2 style="color: black;">5. Recommendations</h2>
-                    
-                    <p><strong>Data Quality Improvements:</strong> - Convert date fields to proper datetime
-                    format - Implement proper numerical formatting for estimated values - Add
-                    data quality metrics for validation</p>
-                    
-                    <p><strong>Best Practices:</strong> 1. Validate synthetic data against domain-specific rules 2.
-                    Implement regular quality checks when using the data 3. Document any
-                    known limitations or biases</p>
-                    
-                    <p><strong>Risk Mitigation:</strong> 1. Implement access controls for synthetic data 2. Regular
-                    privacy impact assessments 3. Monitor for potential re-identification risks 4.
-                    Maintain versioning of synthetic data generation</p>
-                </div>
-                
-                <div class="section" style="background: white; color: black; border: 2px solid black;">
-                    <h2 style="color: black; border: none;">Conclusion</h2>
-                    <p style="font-size: 1.1em; line-height: 1.6;">
-                    The synthetic dataset provides a reasonable balance between utility and
-                    privacy, though there are areas for improvement in data typing and statistical
-                    preservation. The increased sample size enhances privacy protection while
-                    maintaining the basic structure of the original data. Users should be aware of
-                    the limitations regarding temporal relationships and precise value
-                    representations while implementing the recommended risk mitigation
-                    strategies.
-                    </p>
-                </div>
-                
-                <div style="text-align: center; margin-top: 30px; padding-top: 20px; border-top: 1px solid #dee2e6;">
-                    <p style="color: #6c757d;"><em>Report generated with YData Synthetic Data Platform & Enhanced Analytics</em></p>
-                </div>
-            </div>
-        </body>
-        </html>
-        """
-        
-        return html_report
-        
     except Exception as e:
         st.error(f"Error generating report: {str(e)}")
         import traceback
@@ -1096,7 +1072,7 @@ def generate_enhanced_html_report(
         <html>
         <head><title>Error Generating Report</title></head>
         <body style="font-family: Arial, sans-serif; padding: 20px;">
-            <h1 style="color: #dc3545;">❌ Error Generating Report</h1>
+            <h1 style="color: #dc3545;">Error Generating Report</h1>
             <div style="background: #f8d7da; padding: 15px; border-radius: 5px; border-left: 4px solid #dc3545;">
                 <p><strong>Error:</strong> {str(e)}</p>
                 <p>Please ensure your data is properly formatted and try again.</p>

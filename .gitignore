@@ -109,6 +109,11 @@ index.html
 requirements_full.txt
 README_STREAMLIT.md
 
+# Cloud deployment files
+GOOGLE_CLOUD_SETUP.md
+deploy-google-cloud-run.sh
+Dockerfile
+
 # Keep only essential files:
 # - app.py (main Streamlit app)
 # - streamlit_modules.py (core functionality)
