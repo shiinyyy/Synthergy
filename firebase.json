@@ -1,0 +1,25 @@
+{
+    "hosting": {
+      "public": "public",
+      "rewrites": [
+        {
+          "source": "**",
+          "run": {
+            "serviceId": "synthergy",
+            "region": "australia-southeast1"
+          }
+        }
+      ],
+      "headers": [
+        {
+          "source": "**",
+          "headers": [
+            {
+              "key": "X-Frame-Options",
+              "value": "SAMEORIGIN"
+            }
+          ]
+        }
+      ]
+    }
+  }

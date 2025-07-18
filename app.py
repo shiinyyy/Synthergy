@@ -3,6 +3,7 @@ import pandas as pd
 import numpy as np
 import io
 import zipfile
+import os
 
 # Import our Streamlit-compatible modules
 try:
@@ -16,6 +17,94 @@ try:
 except ImportError as e:
     st.error(f"Error importing modules: {e}")
     st.stop()
+
+# AWS S3 integration
+try:
+    import boto3
+    from botocore.exceptions import ClientError
+    AWS_AVAILABLE = True
+    
+    # S3 configuration
+    S3_INPUT_BUCKET = "synthergy-in"      # For original file uploads
+    S3_OUTPUT_BUCKET = "synthergy-reports" # For synthetic data and reports
+    AWS_REGION = "ap-southeast-2"
+    
+    def get_s3_client():
+        """Get S3 client with credentials from environment"""
+        return boto3.client(
+            's3',
+            region_name=AWS_REGION,
+            aws_access_key_id=os.environ.get('AWS_ACCESS_KEY_ID'),
+            aws_secret_access_key=os.environ.get('AWS_SECRET_ACCESS_KEY')
+        )
+    
+    def upload_to_s3(file_content, file_name, bucket_type='input', content_type='application/octet-stream'):
+        """Upload file content to appropriate S3 bucket"""
+        try:
+            s3_client = get_s3_client()
+            
+            if bucket_type == 'input':
+                bucket = S3_INPUT_BUCKET
+                key = f"uploads/{file_name}"
+            else:  # output
+                bucket = S3_OUTPUT_BUCKET
+                key = f"synthetic-data/{file_name}"
+            
+            s3_client.put_object(
+                Bucket=bucket,
+                Key=key,
+                Body=file_content,
+                ContentType=content_type
+            )
+            return f"s3://{bucket}/{key}"
+        except Exception as e:
+            st.warning(f"S3 upload failed: {e}. Using local storage.")
+            return None
+    
+    def upload_report_to_s3(report_content, report_name, content_type='text/html'):
+        """Upload report to S3 output bucket"""
+        try:
+            s3_client = get_s3_client()
+            s3_client.put_object(
+                Bucket=S3_OUTPUT_BUCKET,
+                Key=f"reports/{report_name}",
+                Body=report_content,
+                ContentType=content_type
+            )
+            return f"s3://{S3_OUTPUT_BUCKET}/reports/{report_name}"
+        except Exception as e:
+            st.warning(f"Report S3 upload failed: {e}")
+            return None
+    
+    def download_from_s3(s3_url):
+        """Download file from S3 URL"""
+        try:
+            # Parse S3 URL: s3://bucket/key
+            parts = s3_url.replace('s3://', '').split('/', 1)
+            bucket = parts[0]
+            key = parts[1] if len(parts) > 1 else ''
+            
+            s3_client = get_s3_client()
+            response = s3_client.get_object(Bucket=bucket, Key=key)
+            return response['Body'].read()
+        except Exception as e:
+            st.error(f"S3 download failed: {e}")
+            return None
+            
+except ImportError:
+    AWS_AVAILABLE = False
+    st.warning("AWS integration not available. Using local file storage.")
+
+# PDF generation imports
+try:
+    from weasyprint import HTML, CSS
+    WEASYPRINT_AVAILABLE = True
+except ImportError:
+    WEASYPRINT_AVAILABLE = False
+except OSError:
+    # Handle system library issues
+    WEASYPRINT_AVAILABLE = False
+    print("Warning: WeasyPrint not available due to system library issues")
 
 def read_excel_file(file):
     """Read Excel file with proper header handling"""
@@ -312,14 +401,23 @@ def show_data_generation():
     
     if uploaded_file is not None:
         try:
-            # Read the file
+            # Handle S3 upload if AWS is available
+            s3_path = None
+            if AWS_AVAILABLE:
+                file_content = uploaded_file.getvalue()
+                content_type = uploaded_file.type if uploaded_file.type else 'application/octet-stream'
+                s3_path = upload_to_s3(file_content, uploaded_file.name, 'input', content_type)
+            
+            # Read the file (from uploaded content)
             if uploaded_file.name.endswith(('.xlsx', '.xls')):
                 df = pd.read_excel(uploaded_file)
             else:
                 df = pd.read_csv(uploaded_file)
             
-            # Store original data in session state
+            # Store original data and S3 path in session state
             st.session_state['uploaded_data'] = df
+            st.session_state['s3_file_path'] = s3_path
+            st.session_state['original_filename'] = uploaded_file.name
             
             st.write("### Data Preview")
             
@@ -384,7 +482,7 @@ def show_data_generation():
             with col2:
                 model_type = st.selectbox(
                     "Synthesis Model",
-                    ["Auto", "TabularGAN", "CTGAN", "CopulaGAN"],
+                    ["Auto", "GaussianCopulaSynthesizer", "CTGANSynthesizer", "TVAESynthesizer"],
                     help="Auto selects the best model for your data"
                 )
                 # Store selection
@@ -448,7 +546,7 @@ def show_data_generation():
                             'learning_rate': learning_rate
                         }
                         
-                        # Generate synthetic data using YData (following reference implementation)
+                        # Generate synthetic data using SDV (Synthetic Data Vault)
                         selected_data = df[selected_columns] if selected_columns else df
                         synthetic_df = generate_synthetic_data(selected_data, params)
                         
@@ -462,6 +560,23 @@ def show_data_generation():
                         
                         # Store synthetic data in session state
                         st.session_state['synthetic_data'] = synthetic_df
+                        
+                        # Upload synthetic data to S3 if available
+                        synthetic_s3_path = None
+                        if AWS_AVAILABLE and s3_path:
+                            try:
+                                synthetic_csv = synthetic_df.to_csv(index=False)
+                                synthetic_filename = f"synthetic_{uploaded_file.name.replace('.xlsx', '.csv').replace('.xls', '.csv')}"
+                                synthetic_s3_path = upload_to_s3(
+                                    synthetic_csv.encode(), 
+                                    synthetic_filename, 
+                                    'output',
+                                    'text/csv'
+                                )
+                                if synthetic_s3_path:
+                                    st.session_state['synthetic_s3_path'] = synthetic_s3_path
+                            except Exception as s3_error:
+                                pass  # Silent S3 failure
                         
                         st.success("Synthetic data generated successfully!")
                         
@@ -638,14 +753,39 @@ def show_report_generation_page():
                     synthesis_model=st.session_state.get('synthesis_model', 'Auto')  # Default to 'Auto' if not set
                 )
                 
+                # Check if HTML report generation was successful
+                if html_report is None or not html_report.strip():
+                    st.error("Failed to generate HTML report. Please try again.")
+                    return
+                
                 st.session_state['html_report'] = html_report
                 st.session_state['quality_metrics'] = quality_metrics
-                st.session_state['visualizations'] = visualizations
+                
+                # Store only visualization metadata (not large base64 strings) in session state
+                viz_metadata = {}
+                if visualizations:
+                    for key, value in visualizations.items():
+                        if key == 'dimensionality_reduction' and isinstance(value, str) and len(value) > 10000:
+                            # Don't store large base64 strings in session state
+                            viz_metadata[key + '_available'] = True
+                            viz_metadata[key + '_size'] = len(value)
+                            if 'viz_temp_file' in visualizations:
+                                viz_metadata['viz_temp_file'] = visualizations['viz_temp_file']
+                        else:
+                            viz_metadata[key] = value
+                
+                st.session_state['visualizations'] = viz_metadata
+                # Store the actual visualizations temporarily for immediate display
+                st.session_state['_temp_visualizations'] = visualizations
                 
                 st.success("Report generated successfully!")
                 
                 # Show report preview
                 show_report_preview(quality_metrics, visualizations)
+                
+                # Clean up temporary visualizations to free memory
+                if '_temp_visualizations' in st.session_state:
+                    del st.session_state['_temp_visualizations']
                 
                 # Download options
                 show_report_download_section(html_report, report_format, report_title)
@@ -940,11 +1080,82 @@ def show_report_preview(quality_metrics, visualizations):
                 st.info("Correlation analysis not available.")
         
         with tabs[2]:
-            if 'dimensionality_reduction' in visualizations:
+            # Check for dimensionality reduction in both regular and temporary visualizations
+            temp_viz = st.session_state.get('_temp_visualizations', {})
+            has_dimred = ('dimensionality_reduction_available' in visualizations or 
+                         'dimensionality_reduction' in temp_viz)
+            
+            if has_dimred:
                 st.markdown("PCA, t-SNE, UMAP analysis included.")
-                # Show a small preview of the dimensionality reduction plot if available
-                if isinstance(visualizations['dimensionality_reduction'], str):
-                    st.image(f"data:image/png;base64,{visualizations['dimensionality_reduction']}")
+                
+                # Production-optimized display logic with multiple fallbacks
+                displayed = False
+                
+                # Method 1: Try temp file first (most reliable)
+                temp_file_path = None
+                if 'viz_temp_file' in visualizations:
+                    temp_file_path = visualizations['viz_temp_file']
+                elif 'viz_temp_file' in temp_viz:
+                    temp_file_path = temp_viz['viz_temp_file']
+                
+                if temp_file_path and os.path.exists(temp_file_path):
+                    try:
+                        st.image(temp_file_path)
+                        displayed = True
+                    except Exception as e:
+                        pass  # Silent failure, try next method
+                
+                # Method 2: Try base64 from temp_viz
+                if not displayed and 'dimensionality_reduction' in temp_viz:
+                    viz_data = temp_viz['dimensionality_reduction']
+                    if isinstance(viz_data, str) and len(viz_data) > 0:
+                        try:
+                            st.image(f"data:image/png;base64,{viz_data}")
+                            displayed = True
+                        except Exception as e:
+                            pass  # Silent failure, try next method
+                
+                # Method 3: Try binary data (production fallback)
+                if not displayed and 'image_binary' in temp_viz:
+                    try:
+                        image_binary = temp_viz['image_binary']
+                        st.image(image_binary)
+                        displayed = True
+                    except Exception as e:
+                        pass  # Silent failure, try next method
+                
+                # Method 4: Emergency base64 conversion from binary
+                if not displayed and 'image_binary' in temp_viz:
+                    try:
+                        import base64
+                        image_binary = temp_viz['image_binary']
+                        b64_data = base64.b64encode(image_binary).decode('utf-8')
+                        st.image(f"data:image/png;base64,{b64_data}")
+                        displayed = True
+                    except Exception as e:
+                        pass  # Silent failure, try next method
+                
+                # Method 5: Check visualizations dict directly
+                if not displayed and 'dimensionality_reduction' in visualizations:
+                    viz_data = visualizations['dimensionality_reduction']
+                    if isinstance(viz_data, str) and len(viz_data) > 0:
+                        try:
+                            st.image(f"data:image/png;base64,{viz_data}")
+                            displayed = True
+                        except Exception as e:
+                            pass  # Silent failure
+                
+                # If nothing worked, show informative message
+                if not displayed:
+                    # Check if generation was successful but display failed
+                    if temp_viz.get('generation_success', False):
+                        image_size = temp_viz.get('image_size', 0)
+                        st.info(f"Visualization generated successfully - available in downloadable report")
+                    elif 'dimensionality_reduction_size' in visualizations:
+                        size = visualizations['dimensionality_reduction_size']
+                        st.info(f"Visualization generated - available in downloaded report")
+                    else:
+                        st.warning("⚠️ No valid visualization data available")
             else:
                 st.info("Dimensionality reduction analysis not available.")
     else:
@@ -952,19 +1163,36 @@ def show_report_preview(quality_metrics, visualizations):
 
 def show_report_download_section(html_report, formats, title):
     """Show download section for reports"""
+
+    # Check if html_report is valid
+    if html_report is None or not html_report.strip():
+        st.error("No report content available for download")
+        return
     
     st.markdown("---")  # Add visual separator
     st.markdown('<div class="download-section">', unsafe_allow_html=True)
     st.markdown("### Download Report")
     
+    # Generate unique filename with timestamp
+    import datetime
+    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    safe_title = title.replace(' ', '_').replace('/', '_')
+    
     col1, col2 = st.columns(2)
     
     with col1:
         if "HTML" in formats:
+            html_filename = f"{safe_title}_{timestamp}.html"
+            
+            # Upload to S3 if available
+            html_s3_path = None
+            if AWS_AVAILABLE:
+                html_s3_path = upload_report_to_s3(html_report.encode(), html_filename, 'text/html')
+            
             st.download_button(
                 label="Download HTML Report",
                 data=html_report,
-                file_name=f"{title.replace(' ', '_')}.html",
+                file_name=html_filename,
                 mime="text/html",
                 use_container_width=True  # Make button full width
             )
@@ -975,36 +1203,47 @@ def show_report_download_section(html_report, formats, title):
             try:
                 with st.spinner("Converting to PDF... Please wait"):
                     # Use weasyprint to convert HTML to PDF
-                    from weasyprint import HTML, CSS
-                    
-                    try:
-                        from weasyprint.fonts import FontConfiguration
-                        font_config = FontConfiguration()
-                    except ImportError:
-                        font_config = None
                     
                     html_doc = HTML(string=html_report)
                     
                     css_string = '''
-                        @import url('https://fonts.googleapis.com/css2?family=Noto+Sans:wght@400;700&display=swap');
                         body { font-family: 'Noto Sans', Arial, sans-serif; }
                         .header { text-align: center; padding: 20px; }
                         .section { margin: 20px 0; padding: 15px; }
                     '''
                     
-                    if font_config:
-                        css = CSS(string=css_string, font_config=font_config)
-                        pdf_doc = html_doc.write_pdf(stylesheets=[css], font_config=font_config)
+                    if WEASYPRINT_AVAILABLE:
+                        try:
+                            css = CSS(string=css_string)
+                            pdf_doc = html_doc.write_pdf(stylesheets=[css])
+                        except Exception as e:
+                            st.error(f"PDF generation failed: {str(e)}")
+                            st.markdown("**Alternative:** Download the HTML report and use your browser to save as PDF.")
+                            return
                     else:
-                        css = CSS(string=css_string)
-                        pdf_doc = html_doc.write_pdf(stylesheets=[css])
+                        st.warning("WeasyPrint not available. PDF generation disabled.")
+                        st.markdown("**Alternative:** Download the HTML report and use your browser to save as PDF.")
+                        return
                     
-                    st.download_button(
-                        label="Download PDF Report",
-                        data=pdf_doc,
-                        file_name=f"{title.replace(' ', '_')}.pdf",
-                        mime="application/pdf"
-                    )
+                    # Check if PDF generation was successful
+                    if pdf_doc is not None and len(pdf_doc) > 0:
+                        pdf_filename = f"{safe_title}_{timestamp}.pdf"
+                        
+                        # Upload PDF to S3 if available
+                        pdf_s3_path = None
+                        if AWS_AVAILABLE:
+                            pdf_s3_path = upload_report_to_s3(pdf_doc, pdf_filename, 'application/pdf')
+                        
+                        st.download_button(
+                            label="Download PDF Report",
+                            data=pdf_doc,
+                            file_name=pdf_filename,
+                            mime="application/pdf"
+                        )
+                    else:
+                        st.error("PDF generation failed - no content generated")
+                        st.markdown("**Alternative:** Download the HTML report and use your browser to save as PDF.")
+                        
             except ImportError:
                 st.warning("WeasyPrint not available. PDF generation requires: pip install weasyprint")
                 st.markdown("**Alternative:** Download the HTML report and use your browser to save as PDF.")

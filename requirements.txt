@@ -1,23 +1,12 @@
-# Core Streamlit Application
-streamlit>=1.25.0
-
-# Data Science & Analysis
-pandas>=2.0.0
+streamlit>=1.28.0
+pandas>=1.4.0
 numpy>=1.24.0
-scikit-learn>=1.0.0
-scipy>=1.10.0
-
-# Visualization
-matplotlib>=3.7.0
-plotly>=5.0.0
+matplotlib>=3.5.0
+scikit-learn>=1.1.0
 umap-learn>=0.5.0
-
-# Data Processing
-openpyxl>=3.1.0
-
-# PDF Generation (optional)
-weasyprint>=60.0
-
-# YData Synthesis (not publicly available - using fallback methods)
-# ydata-sdk>=3.0.0  # Commented out - not available in public PyPI
-# The app includes statistical synthesis fallback 
+sdv>=1.24.0
+weasyprint>=59.0
+openpyxl>=3.0.0
+plotly>=5.10.0
+boto3>=1.28.0
+Pillow>=9.0.0 

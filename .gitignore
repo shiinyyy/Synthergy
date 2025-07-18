@@ -23,7 +23,6 @@ share/python-wheels/
 MANIFEST
 
 # Virtual Environments
-ydata/
 3.12/
 venv/
 env/
@@ -31,63 +30,53 @@ ENV/
 env.bak/
 venv.bak/
 
-# IDE
+# IDE and Editors
 .vscode/
 .idea/
 *.swp
 *.swo
 *~
 
-# Jupyter Notebook
+# Jupyter Notebooks
 .ipynb_checkpoints
 *.ipynb
 
-# Environment variables
+# Environment Variables
 .env
 .env.local
 .env.development.local
 .env.test.local
 .env.production.local
+Dockerfile
+deploy.sh
 
-# AWS
-AWSCLIV2.pkg
+# AWS and Cloud
 *.pem
 *.key
+setup-aws.sh
 
-# Generated Reports and Data
+# Generated Reports and Output Files
 *.html
 *.pdf
 *.png
 *.jpg
 *.jpeg
 *.gif
+synthetic_*.csv
+synthetic_*.json
 
-# Temporary files
+# Temporary Files
 *.tmp
 *.temp
-update_result.txt
-stack_events.txt
-stack_status.txt
+*.log
+logs/
 
-# Docker
-*.dockerfile
-build_docker.sh
-docker/
-
-# Lambda and AWS
-lambda_functions/
-bucket-policy.json
-
-# Local models and data
+# Local Data and Models
 .local_models/
 data/
 datasets/
 
-# Logs
-*.log
-logs/
-
-# OS generated files
+# OS Generated Files
 .DS_Store
 .DS_Store?
 ._*
@@ -96,27 +85,12 @@ logs/
 ehthumbs.db
 Thumbs.db
 
-# Shell scripts (except essential ones)
-run_synthergy.sh
+# Docker
+docker/
+*.dockerfile
+.dockerignore
 
-# Large sample files
-Global_Energy_Consumption.html
-energy_report_with_comparison.html
-synthetic_data_report.pdf
-index.html
-
-# Full requirements and extra docs
-requirements_full.txt
-README_STREAMLIT.md
-
-# Cloud deployment files
-GOOGLE_CLOUD_SETUP.md
-deploy-google-cloud-run.sh
-Dockerfile
-
-# Keep only essential files:
-# - app.py (main Streamlit app)
-# - streamlit_modules.py (core functionality)
-# - requirements.txt (minimal dependencies)
-# - README.md (documentation)
-# - .streamlit/ (Streamlit config) 
+# Cloud Deployment Temp Files
+stack_events.txt
+stack_status.txt
+update_result.txt 
