@@ -93,4 +93,7 @@ docker/
 # Cloud Deployment Temp Files
 stack_events.txt
 stack_status.txt
-update_result.txt 
+update_result.txt
+
+# Firebase
+firebase.json
