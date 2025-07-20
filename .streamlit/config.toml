@@ -1,27 +1,7 @@
 [server]
-port = 8501
+port = 8080
 address = "0.0.0.0"
 headless = true
-enableCORS = false
-enableXsrfProtection = false
-enableWebsocketCompression = false
-enableStaticServing = true
-maxUploadSize = 200
 
 [browser]
-gatherUsageStats = false
-serverAddress = "0.0.0.0"
-serverPort = 8501
-
-[theme]
-primaryColor = "#FF6B6B"
-backgroundColor = "#FFFFFF"
-secondaryBackgroundColor = "#F0F2F6"
-textColor = "#262730"
-
-[runner]
-magicEnabled = false
-fixMatplotlib = true
-
-[client]
-showErrorDetails = false 
+gatherUsageStats = false 

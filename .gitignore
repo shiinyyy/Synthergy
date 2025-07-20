@@ -113,10 +113,5 @@ README_STREAMLIT.md
 GOOGLE_CLOUD_SETUP.md
 deploy-google-cloud-run.sh
 Dockerfile
-
-# Keep only essential files:
-# - app.py (main Streamlit app)
-# - streamlit_modules.py (core functionality)
-# - requirements.txt (minimal dependencies)
-# - README.md (documentation)
-# - .streamlit/ (Streamlit config) 
+setup-aws.sh
+deploy.sh

@@ -1,0 +1,15 @@
+{
+  "projects": {
+    "default": "synthergy-0"
+  },
+  "targets": {
+    "synthergy-0": {
+      "hosting": {
+        "main": [
+          "synthergy"
+        ]
+      }
+    }
+  },
+  "etags": {}
+}

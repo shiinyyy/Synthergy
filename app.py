@@ -4,18 +4,31 @@ import numpy as np
 import io
 import zipfile
 
-# Import our Streamlit-compatible modules
-try:
-    from streamlit_modules import (
-        generate_synthetic_data,
-        generate_enhanced_html_report,
-        generate_comparison_visualizations,
-        calculate_quality_metrics,
-        show_data_comparison_table
-    )
-except ImportError as e:
-    st.error(f"Error importing modules: {e}")
-    st.stop()
+# Lazy loading for heavy modules - improves startup time
+def load_heavy_modules():
+    """Load heavy modules only when needed"""
+    if 'heavy_modules' not in st.session_state:
+        try:
+            with st.spinner("Loading synthesis modules..."):
+                from streamlit_modules import (
+                    generate_synthetic_data,
+                    generate_enhanced_html_report,
+                    generate_comparison_visualizations,
+                    calculate_quality_metrics,
+                    show_data_comparison_table
+                )
+                st.session_state['heavy_modules'] = {
+                    'generate_synthetic_data': generate_synthetic_data,
+                    'generate_enhanced_html_report': generate_enhanced_html_report,
+                    'generate_comparison_visualizations': generate_comparison_visualizations,
+                    'calculate_quality_metrics': calculate_quality_metrics,
+                    'show_data_comparison_table': show_data_comparison_table
+                }
+        except ImportError as e:
+            st.error(f"Error importing modules: {e}")
+            st.session_state['heavy_modules'] = None
+    
+    return st.session_state['heavy_modules']
 
 def read_excel_file(file):
     """Read Excel file with proper header handling"""
@@ -34,7 +47,7 @@ def read_excel_file(file):
 # Configure Streamlit page
 st.set_page_config(
     page_title="Synthergy",
-    page_icon=None,
+    page_icon="public/favicon.ico",
     layout="wide",
     initial_sidebar_state="expanded"
 )
@@ -42,8 +55,13 @@ st.set_page_config(
 # Custom CSS for better styling
 st.markdown("""
 <style>
-    /* Import Google Fonts */
-    @import url('https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@700&family=Noto+Sans:wght@400;700&display=swap');
+    /* Use system fonts instead of Google Fonts for better production compatibility */
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;700&display=swap');
+    
+    /* Fallback fonts for production environment */
+    * {
+        font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Helvetica Neue', Arial, sans-serif !important;
+    }
     
     /* Animation keyframes */
     @keyframes fadeInUp {
@@ -57,11 +75,11 @@ st.markdown("""
         }
     }
     
-    /* Animated title styles */
+    /* Animated title styles with production-safe fonts */
     .main-header {
         font-size: 4.5rem;
         font-weight: 700;
-        font-family: 'Chakra Petch', sans-serif;
+        font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif !important;
         background: linear-gradient(120deg, #1f77b4, #4a90e2);
         -webkit-background-clip: text;
         background-clip: text;
@@ -71,18 +89,22 @@ st.markdown("""
         letter-spacing: 2px;
         animation: fadeInUp 1.2s ease-out;
         text-shadow: 2px 2px 4px rgba(0,0,0,0.1);
+        z-index: 999;
+        position: relative;
     }
     
     .sub-header-container {
         text-align: center;
         margin-bottom: 3rem;
         overflow: hidden;
+        z-index: 999;
+        position: relative;
     }
     
     .sub-header {
         font-size: 1.5rem;
         color: var(--text-color);
-        font-family: 'Noto Sans', sans-serif;
+        font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif !important;
         display: inline-block;
         animation: fadeInUp 1.2s ease-out 0.3s both;
         opacity: 0.9;
@@ -96,6 +118,8 @@ st.markdown("""
         margin: 2rem auto;
         max-width: 800px;
         gap: 1.2rem;
+        z-index: 999;
+        position: relative;
     }
     
     /* Card styles */
@@ -217,6 +241,68 @@ st.markdown("""
     /* Hide deploy button */
     [data-testid="stDecoration"] {
         display: none !important;
+    }
+    
+    /* Hide "Made with Streamlit" text - multiple selectors to ensure it's hidden */
+    footer {
+        display: none !important;
+    }
+    
+    .reportview-container .main footer {
+        display: none !important;
+    }
+    
+    div[data-testid="stToolbar"] {
+        display: none !important;
+    }
+    
+    .css-1d391kg {
+        display: none !important;
+    }
+    
+    #MainMenu {
+        display: none !important;
+    }
+    
+    footer {
+        visibility: hidden !important;
+    }
+    
+    footer:after {
+        content: '';
+        visibility: hidden !important;
+        display: block !important;
+    }
+    
+    /* More specific selectors for "Made with Streamlit" */
+    .css-1v0mbdj > div:last-child {
+        display: none !important;
+    }
+    
+    .block-container + div {
+        display: none !important;
+    }
+    
+    /* Production environment font fixes */
+    h1, h2, h3, h4, h5, h6 {
+        font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif !important;
+    }
+    
+    /* Ensure all text is visible and properly styled */
+    .main .block-container {
+        padding-top: 1rem;
+        padding-bottom: 1rem;
+    }
+    
+    /* Override any conflicting styles */
+    .stApp {
+        background-color: transparent;
+    }
+    
+    /* Fix any z-index issues */
+    .main-header, .sub-header-container, .card-container {
+        z-index: 1000 !important;
+        position: relative !important;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -384,9 +470,21 @@ def show_data_generation():
             with col2:
                 model_type = st.selectbox(
                     "Synthesis Model",
-                    ["Auto", "TabularGAN", "CTGAN", "CopulaGAN"],
-                    help="Auto selects the best model for your data"
+                    ["Gaussian Copula", "TabularGAN", "CTGAN", "CopulaGAN", "TVAE"],
+                    help="Choose synthesis model based on your data characteristics"
                 )
+                
+                # Add model descriptions
+                model_descriptions = {
+                    "Gaussian Copula": "**Fast & Reliable** • Preserves correlations perfectly • Best statistical accuracy • Works with any data size",
+                    "TabularGAN": "**High-Quality Synthesis** • Excellent for categorical data • Captures complex patterns • Best privacy protection",
+                    "CTGAN": "**Deep Learning** • Handles mixed data types expertly • Advanced pattern recognition • Industry standard",
+                    "CopulaGAN": "**Statistical Excellence** • Perfect distribution preservation • Best for numerical data • Research-grade quality",
+                    "TVAE": "**Complex Relationships** • Captures non-linear patterns • Best for anomaly-rich data • Handles outliers well"
+                }
+                
+                if model_type in model_descriptions:
+                    st.info(model_descriptions[model_type])
                 # Store selection
                 st.session_state['synthesis_model'] = model_type
                 
@@ -448,9 +546,14 @@ def show_data_generation():
                             'learning_rate': learning_rate
                         }
                         
-                        # Generate synthetic data using YData (following reference implementation)
+                        # Load heavy modules and generate synthetic data
+                        modules = load_heavy_modules()
+                        if modules is None:
+                            st.error("Failed to load synthesis modules. Please check the installation.")
+                            return
+                        
                         selected_data = df[selected_columns] if selected_columns else df
-                        synthetic_df = generate_synthetic_data(selected_data, params)
+                        synthetic_df = modules['generate_synthetic_data'](selected_data, params)
                         
                         # Check if generation was successful
                         if synthetic_df is None:
@@ -466,7 +569,7 @@ def show_data_generation():
                         st.success("Synthetic data generated successfully!")
                         
                         # Show data comparison table
-                        show_data_comparison_table(df, synthetic_df)
+                        modules['show_data_comparison_table'](df, synthetic_df)
                         
                         # Download options
                         st.write("### Download Synthetic Data")
@@ -619,23 +722,29 @@ def show_report_generation_page():
     ):
         with st.spinner("Generating comprehensive report... have a coffee break!"):
             try:
+                # Load heavy modules for report generation
+                modules = load_heavy_modules()
+                if modules is None:
+                    st.error("Failed to load modules for report generation.")
+                    return
+                
                 # Calculate quality metrics
-                quality_metrics = calculate_quality_metrics(original_data, synthetic_data)
+                quality_metrics = modules['calculate_quality_metrics'](original_data, synthetic_data)
                 
                 # Generate visualizations
                 if include_visualizations:
-                    visualizations = generate_comparison_visualizations(original_data, synthetic_data)
+                    visualizations = modules['generate_comparison_visualizations'](original_data, synthetic_data)
                 else:
                     visualizations = {}
                 
                 # Generate HTML report
-                html_report = generate_enhanced_html_report(
+                html_report = modules['generate_enhanced_html_report'](
                     original_data, 
                     synthetic_data,
                     title=report_title,
                     use_bedrock=use_bedrock_analysis,
                     selected_columns=st.session_state.get('selected_columns'),
-                    synthesis_model=st.session_state.get('synthesis_model', 'Auto')  # Default to 'Auto' if not set
+                                            synthesis_model=st.session_state.get('synthesis_model', 'Gaussian Copula')  # Default to 'Gaussian Copula' if not set
                 )
                 
                 st.session_state['html_report'] = html_report
@@ -704,7 +813,13 @@ def show_batch_processing_page():
                             'learning_rate': 0.001
                         }
                         
-                        synthetic_data = generate_synthetic_data(data, params)
+                        # Load heavy modules for batch processing
+                        modules = load_heavy_modules()
+                        if modules is None:
+                            st.error("Failed to load synthesis modules for batch processing.")
+                            return
+                        
+                        synthetic_data = modules['generate_synthetic_data'](data, params)
                         
                         if synthetic_data is not None:
                             results.append({
@@ -951,7 +1066,7 @@ def show_report_preview(quality_metrics, visualizations):
         st.info("No visualizations generated.")
 
 def show_report_download_section(html_report, formats, title):
-    """Show download section for reports"""
+    """Show download section for reports with improved error handling"""
     
     st.markdown("---")  # Add visual separator
     st.markdown('<div class="download-section">', unsafe_allow_html=True)
@@ -961,56 +1076,98 @@ def show_report_download_section(html_report, formats, title):
     
     with col1:
         if "HTML" in formats:
-            st.download_button(
-                label="Download HTML Report",
-                data=html_report,
-                file_name=f"{title.replace(' ', '_')}.html",
-                mime="text/html",
-                use_container_width=True  # Make button full width
-            )
+            try:
+                # Ensure the HTML report is properly encoded
+                if isinstance(html_report, str):
+                    html_data = html_report.encode('utf-8')
+                else:
+                    html_data = html_report
+                
+                st.download_button(
+                    label="📄 Download HTML Report",
+                    data=html_data,
+                    file_name=f"{title.replace(' ', '_').replace('/', '_')}_report.html",
+                    mime="text/html",
+                    use_container_width=True
+                )
+            except Exception as e:
+                st.error(f"HTML download error: {str(e)}")
     
     with col2:
         if "PDF" in formats:
-            # Convert HTML to PDF
             try:
-                with st.spinner("Converting to PDF... Please wait"):
-                    # Use weasyprint to convert HTML to PDF
-                    from weasyprint import HTML, CSS
-                    
+                # Try to generate PDF with better error handling
+                with st.spinner("Converting to PDF..."):
                     try:
-                        from weasyprint.fonts import FontConfiguration
-                        font_config = FontConfiguration()
-                    except ImportError:
-                        font_config = None
-                    
-                    html_doc = HTML(string=html_report)
-                    
-                    css_string = '''
-                        @import url('https://fonts.googleapis.com/css2?family=Noto+Sans:wght@400;700&display=swap');
-                        body { font-family: 'Noto Sans', Arial, sans-serif; }
-                        .header { text-align: center; padding: 20px; }
-                        .section { margin: 20px 0; padding: 15px; }
-                    '''
-                    
-                    if font_config:
-                        css = CSS(string=css_string, font_config=font_config)
-                        pdf_doc = html_doc.write_pdf(stylesheets=[css], font_config=font_config)
-                    else:
+                        # Import weasyprint with fallback
+                        from weasyprint import HTML, CSS
+                        
+                        # Create HTML document
+                        html_doc = HTML(string=html_report)
+                        
+                        # Simple CSS without external fonts to avoid issues
+                        css_string = '''
+                            @page {
+                                margin: 2cm;
+                                size: A4;
+                            }
+                            body { 
+                                font-family: Arial, sans-serif; 
+                                line-height: 1.4;
+                                color: #333;
+                            }
+                            .header { 
+                                text-align: center; 
+                                padding: 20px;
+                                border-bottom: 2px solid #3498db;
+                                margin-bottom: 20px;
+                            }
+                            .section { 
+                                margin: 20px 0; 
+                                padding: 15px;
+                                page-break-inside: avoid;
+                            }
+                            img {
+                                max-width: 100%;
+                                height: auto;
+                                page-break-inside: avoid;
+                            }
+                            table {
+                                width: 100%;
+                                border-collapse: collapse;
+                                margin: 10px 0;
+                            }
+                            th, td {
+                                padding: 8px;
+                                border: 1px solid #ddd;
+                                text-align: left;
+                            }
+                        '''
+                        
                         css = CSS(string=css_string)
-                        pdf_doc = html_doc.write_pdf(stylesheets=[css])
-                    
-                    st.download_button(
-                        label="Download PDF Report",
-                        data=pdf_doc,
-                        file_name=f"{title.replace(' ', '_')}.pdf",
-                        mime="application/pdf"
-                    )
-            except ImportError:
-                st.warning("WeasyPrint not available. PDF generation requires: pip install weasyprint")
-                st.markdown("**Alternative:** Download the HTML report and use your browser to save as PDF.")
+                        pdf_data = html_doc.write_pdf(stylesheets=[css])
+                        
+                        st.download_button(
+                            label="📑 Download PDF Report",
+                            data=pdf_data,
+                            file_name=f"{title.replace(' ', '_').replace('/', '_')}_report.pdf",
+                            mime="application/pdf",
+                            use_container_width=True
+                        )
+                        
+                    except ImportError:
+                        st.warning("⚠️ PDF generation not available. WeasyPrint dependency missing.")
+                        st.markdown("**Alternative:** Download the HTML report and print to PDF using your browser.")
+                        
+                    except Exception as pdf_error:
+                        st.error(f"PDF generation failed: {str(pdf_error)}")
+                        st.markdown("**Alternative:** Download the HTML report and convert using your browser:")
+                        st.markdown("1. Download HTML report")
+                        st.markdown("2. Open in browser")
+                        st.markdown("3. Print → Save as PDF")
+                        
             except Exception as e:
-                st.error(f"PDF conversion failed: {str(e)}")
-                st.markdown("**Alternative:** Download the HTML report and use your browser to save as PDF.")
+                st.error(f"PDF download setup error: {str(e)}")
     
     st.markdown('</div>', unsafe_allow_html=True)
 

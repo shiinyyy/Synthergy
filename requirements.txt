@@ -1,5 +1,5 @@
 # Core Streamlit Application
-streamlit>=1.25.0
+streamlit==1.25.0
 
 # Data Science & Analysis
 pandas>=2.0.0
@@ -18,6 +18,8 @@ openpyxl>=3.1.0
 # PDF Generation (optional)
 weasyprint>=60.0
 
-# YData Synthesis (not publicly available - using fallback methods)
-# ydata-sdk>=3.0.0  # Commented out - not available in public PyPI
-# The app includes statistical synthesis fallback 
+# Synthetic Data Generation
+sdv>=1.2.0  # Synthetic Data Vault for generating synthetic data
+
+# AWS SDK for Bedrock
+boto3>=1.26.0 
