@@ -6,10 +6,22 @@ import zipfile
 
 # Lazy loading for heavy modules - improves startup time
 def load_heavy_modules():
-    """Load heavy modules only when needed"""
+    """Load heavy modules only when needed with production-safe error handling"""
     if 'heavy_modules' not in st.session_state:
         try:
             with st.spinner("Loading synthesis modules..."):
+                # Test dependency availability first
+                dependency_status = check_dependencies()
+                
+                if not dependency_status['core_available']:
+                    st.error("Core dependencies not available in this environment")
+                    st.session_state['heavy_modules'] = None
+                    return None
+                
+                # Show dependency status
+                # if dependency_status['issues']:
+                #     st.warning(f"Some optional features unavailable: {', '.join(dependency_status['issues'])}")
+                
                 from streamlit_modules import (
                     generate_synthetic_data,
                     generate_enhanced_html_report,
@@ -22,13 +34,72 @@ def load_heavy_modules():
                     'generate_enhanced_html_report': generate_enhanced_html_report,
                     'generate_comparison_visualizations': generate_comparison_visualizations,
                     'calculate_quality_metrics': calculate_quality_metrics,
-                    'show_data_comparison_table': show_data_comparison_table
+                    'show_data_comparison_table': show_data_comparison_table,
                 }
         except ImportError as e:
-            st.error(f"Error importing modules: {e}")
+            st.error(f"❌ Error importing modules: {e}")
+            st.info("🔧 This may be due to missing system dependencies in the production environment")
+            st.session_state['heavy_modules'] = None
+        except Exception as e:
+            st.error(f"❌ Unexpected error loading modules: {e}")
             st.session_state['heavy_modules'] = None
     
     return st.session_state['heavy_modules']
+
+def check_dependencies():
+    """Check availability of key dependencies"""
+    status = {
+        'core_available': True,
+        'issues': []
+    }
+    
+    try:
+        # Test core dependencies
+        import pandas, numpy, streamlit
+        import matplotlib.pyplot
+        matplotlib.pyplot.switch_backend('Agg')  # Ensure non-interactive backend
+        
+        # Test scientific libraries
+        try:
+            import sklearn
+        except ImportError:
+            status['issues'].append('scikit-learn')
+        
+        try:
+            import umap
+        except ImportError:
+            status['issues'].append('UMAP')
+        
+        try:
+            from sdv.single_table import GaussianCopulaSynthesizer
+        except ImportError:
+            status['issues'].append('SDV')
+            status['core_available'] = False
+        
+        try:
+            import weasyprint
+            # Test if weasyprint can actually work (parser test)
+            test_html = "<html><body><p>Test</p></body></html>"
+            test_doc = weasyprint.HTML(string=test_html)
+            test_doc.write_pdf()  # This will fail if pycparser issues exist
+        except ImportError:
+            status['issues'].append('WeasyPrint (not installed)')
+        except Exception as e:
+            if "translation_unit_or_empty" in str(e) or "pycparser" in str(e):
+                status['issues'].append('WeasyPrint (parser dependencies missing)')
+            else:
+                status['issues'].append(f'WeasyPrint (error: {str(e)[:50]})')
+        
+        try:
+            import google.cloud.aiplatform
+        except ImportError:
+            status['issues'].append('Vertex AI')
+            
+    except Exception as e:
+        status['core_available'] = False
+        status['issues'].append(f'Critical error: {str(e)}')
+    
+    return status
 
 def read_excel_file(file):
     """Read Excel file with proper header handling"""
@@ -58,9 +129,9 @@ st.markdown("""
     /* Use system fonts instead of Google Fonts for better production compatibility */
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;700&display=swap');
     
-    /* Fallback fonts for production environment */
-    * {
-        font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Helvetica Neue', Arial, sans-serif !important;
+    /* Fallback fonts for production environment - only for main content, not icons */
+    .main .block-container, .sidebar .sidebar-content p, h1, h2, h3, h4, h5, h6, .stMarkdown {
+        font-family: 'Noto Sans', Arial, sans-serif !important;
     }
     
     /* Animation keyframes */
@@ -79,7 +150,10 @@ st.markdown("""
     .main-header {
         font-size: 4.5rem;
         font-weight: 700;
-        font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif !important;
+        font-family: 'Noto Sans', Arial, sans-serif !important;
+        /* Solid color fallback for production */
+        color: #1f77b4;
+        /* Gradient for browsers that support it */
         background: linear-gradient(120deg, #1f77b4, #4a90e2);
         -webkit-background-clip: text;
         background-clip: text;
@@ -93,6 +167,15 @@ st.markdown("""
         position: relative;
     }
     
+    /* Fallback for browsers that don't support background-clip: text */
+    @supports not (-webkit-background-clip: text) {
+        .main-header {
+            color: #1f77b4;
+            background: none !important;
+            -webkit-text-fill-color: unset !important;
+        }
+    }
+    
     .sub-header-container {
         text-align: center;
         margin-bottom: 3rem;
@@ -104,7 +187,7 @@ st.markdown("""
     .sub-header {
         font-size: 1.5rem;
         color: var(--text-color);
-        font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif !important;
+        font-family: 'Noto Sans', Arial, sans-serif !important;
         display: inline-block;
         animation: fadeInUp 1.2s ease-out 0.3s both;
         opacity: 0.9;
@@ -163,7 +246,7 @@ st.markdown("""
         margin: 0;
     }
     
-    /* Rest of your existing CSS */
+    /* Rest of styling */
     .metric-card {
         background-color: var(--background-color);
         padding: 1.5rem;
@@ -232,13 +315,7 @@ st.markdown("""
         font-weight: bold;
     }
     
-    /* Hide specific menu items */
-    div[data-testid="stToolbar"] button[data-testid="baseButton-headerNoPadding"]:nth-of-type(2),
-    div[data-testid="stToolbar"] button[data-testid="baseButton-headerNoPadding"]:nth-of-type(3) {
-        display: none !important;
-    }
-    
-    /* Hide deploy button */
+    /* Hide deploy button only - keep dark/light mode toggle visible */
     [data-testid="stDecoration"] {
         display: none !important;
     }
@@ -252,8 +329,13 @@ st.markdown("""
         display: none !important;
     }
     
-    div[data-testid="stToolbar"] {
-        display: none !important;
+    div[data-testid="stToolbar"]  {
+        display: block !important;
+    }
+    
+    /* Hide everything except Appearance section */
+    div[data-testid="stToolbar"] > div:not(:nth-child(2)) {
+    display: none !important;
     }
     
     .css-1d391kg {
@@ -261,7 +343,7 @@ st.markdown("""
     }
     
     #MainMenu {
-        display: none !important;
+        display: block !important;
     }
     
     footer {
@@ -285,7 +367,7 @@ st.markdown("""
     
     /* Production environment font fixes */
     h1, h2, h3, h4, h5, h6 {
-        font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif !important;
+        font-family: 'Noto Sans', Arial, sans-serif !important;
     }
     
     /* Ensure all text is visible and properly styled */
@@ -324,6 +406,9 @@ def main():
         show_report_generation_page()
     elif page == "Batch Processing":
         show_batch_processing_page()
+    # System Diagnostics hidden from user interface
+    # elif page == "System Diagnostics":
+    #     show_diagnostics_page()
 
 def show_home_page():
     """Home page with navigation cards"""
@@ -476,11 +561,11 @@ def show_data_generation():
                 
                 # Add model descriptions
                 model_descriptions = {
-                    "Gaussian Copula": "**Fast & Reliable** • Preserves correlations perfectly • Best statistical accuracy • Works with any data size",
-                    "TabularGAN": "**High-Quality Synthesis** • Excellent for categorical data • Captures complex patterns • Best privacy protection",
-                    "CTGAN": "**Deep Learning** • Handles mixed data types expertly • Advanced pattern recognition • Industry standard",
-                    "CopulaGAN": "**Statistical Excellence** • Perfect distribution preservation • Best for numerical data • Research-grade quality",
-                    "TVAE": "**Complex Relationships** • Captures non-linear patterns • Best for anomaly-rich data • Handles outliers well"
+                    "Gaussian Copula": "**Fast & Reliable** • Preserves correlations, statistical accuracy with any data size",
+                    "TabularGAN": "**High-Quality Synthesis** • Excellent for categorical data, captures complex patterns with great privacy protection",
+                    "CTGAN": "**Deep Learning** • Handles mixed data types with patterns",
+                    "CopulaGAN": "**Statistical Excellence** • Good for distribution preservation, numerical data",
+                    "TVAE": "**Complex Relationships** • Captures non-linear patterns, best for anomaly-rich data with outlier handling"
                 }
                 
                 if model_type in model_descriptions:
@@ -504,7 +589,7 @@ def show_data_generation():
                 with col1:
                     epochs = st.slider(
                         "Training Epochs", 
-                        50, 500, 100,
+                        50, 500, 300,
                         help="Number of complete passes through your data during training. More epochs = better learning but longer training time."
                     )
                     
@@ -526,9 +611,7 @@ def show_data_generation():
                 
                 # Add explanatory info box
                 st.info("""
-                    - **Epochs:** More epochs = better learning but longer training time
-                    - **Batch Size:** Larger batches = more stable training but higher memory usage
-                    - **Learning Rate:** Controls how quickly the model learns
+                    **Note:** generation time can be varied depending on parameters
                 """)
             
             # Generate synthetic data
@@ -649,6 +732,14 @@ def show_report_generation_page():
     
     st.title("Report Generation")
     
+    # Add information about report access
+    with st.expander("Information", expanded=False):
+        st.markdown("""
+        **Report Access Options:**
+        - **View**: Preview reports directly
+        - **Download**: Save report as HTML/PDF files
+        """)
+    
     # Check if we have both original and synthetic data
     if 'uploaded_data' not in st.session_state:
         st.warning("Please upload data first in 'Data Generation' section.")
@@ -695,11 +786,15 @@ def show_report_generation_page():
                 help="PCA, t-SNE, UMAP analysis"
             )
             
-            use_bedrock_analysis = st.checkbox(
+            use_gemini_analysis = st.checkbox(
                 "Include Detailed Analysis",
                 value=True,
                 help="Comprehensive insights"
             )
+            
+            st.info("""
+                **Note:** allow extra time for detailed generation.
+            """)
         
         with col2:
             report_format = st.multiselect(
@@ -707,7 +802,7 @@ def show_report_generation_page():
                 ["HTML", "PDF"],
                 default=["HTML", "PDF"]
             )
-    
+
     # Generate report button (only enabled if title is provided)
     if not report_title.strip():
         st.info("What's the title for your report?")
@@ -722,6 +817,29 @@ def show_report_generation_page():
     ):
         with st.spinner("Generating comprehensive report... have a coffee break!"):
             try:
+                # Production environment detection and optimization
+                import os
+                import psutil
+                
+                # Detect production environment
+                try:
+                    import socket
+                    hostname = socket.gethostname()
+                    is_production = (
+                        'run.app' in hostname or
+                        os.getenv('GAE_ENV') is not None or
+                        os.getenv('GOOGLE_CLOUD_PROJECT') is not None or
+                        os.getenv('K_SERVICE') is not None  # Cloud Run indicator
+                    )
+                except:
+                    is_production = os.getenv('GOOGLE_CLOUD_PROJECT') is not None
+                
+                # Get system resources
+                memory_gb = psutil.virtual_memory().total / (1024**3)
+                
+                # if is_production:
+                #     st.info(f"Cloud environment detected (Memory: {memory_gb:.1f}GB) - Optimizing for production")
+
                 # Load heavy modules for report generation
                 modules = load_heavy_modules()
                 if modules is None:
@@ -742,7 +860,7 @@ def show_report_generation_page():
                     original_data, 
                     synthetic_data,
                     title=report_title,
-                    use_bedrock=use_bedrock_analysis,
+                    use_gemini=use_gemini_analysis,
                     selected_columns=st.session_state.get('selected_columns'),
                                             synthesis_model=st.session_state.get('synthesis_model', 'Gaussian Copula')  # Default to 'Gaussian Copula' if not set
                 )
@@ -755,6 +873,9 @@ def show_report_generation_page():
                 
                 # Show report preview
                 show_report_preview(quality_metrics, visualizations)
+                
+                # Show inline report viewer
+                show_inline_report_viewer(html_report)
                 
                 # Download options
                 show_report_download_section(html_report, report_format, report_title)
@@ -1065,6 +1186,37 @@ def show_report_preview(quality_metrics, visualizations):
     else:
         st.info("No visualizations generated.")
 
+def show_inline_report_viewer(html_report):
+    """Show HTML report inline for preview"""
+    st.markdown("### Report Preview")
+    
+    # Add info about the report
+    st.info("Your file is ready to download below.")
+    
+    try:
+        # Display the HTML report using components.html
+        import streamlit.components.v1 as components
+        
+        # Create a scrollable container for the report
+        components.html(
+            html_report,
+            height=800,
+            scrolling=True
+        )
+        
+    except Exception as e:
+        st.error(f"Error displaying report: {str(e)}")
+        st.markdown("**Report content preview unavailable. Please use the download options below.**")
+        
+        # Show a fallback text preview
+        with st.expander("📄 Text Preview (Fallback)"):
+            # Clean HTML for text preview
+            import re
+            # Remove HTML tags for basic text preview
+            text_content = re.sub('<[^<]+?>', '', html_report)
+            text_preview = text_content[:1000] + "..." if len(text_content) > 1000 else text_content
+            st.text(text_preview)
+
 def show_report_download_section(html_report, formats, title):
     """Show download section for reports with improved error handling"""
     
@@ -1096,35 +1248,42 @@ def show_report_download_section(html_report, formats, title):
     with col2:
         if "PDF" in formats:
             try:
-                # Try to generate PDF with better error handling
+                # Production-safe PDF generation with multiple fallbacks
                 with st.spinner("Converting to PDF..."):
                     try:
-                        # Import weasyprint with fallback
+                        # Check if we're in a production environment with limited resources
+                        import os
+                        is_cloud_run = os.getenv('K_SERVICE') is not None
+                        
+                        # Test weasyprint availability before using
                         from weasyprint import HTML, CSS
                         
-                        # Create HTML document
-                        html_doc = HTML(string=html_report)
+                        # Test if weasyprint parser is working (this is where it fails)
+                        test_html = "<html><body><p>Test</p></body></html>"
+                        test_doc = HTML(string=test_html)
+                        test_doc.write_pdf()  # This will trigger the parser error if dependencies are missing
                         
-                        # Simple CSS without external fonts to avoid issues
+                        # Create HTML document with production-safe settings
+                        html_doc = HTML(string=html_report, base_url=None)
+                        
+                        # Minimal CSS to avoid font and resource issues
                         css_string = '''
                             @page {
-                                margin: 2cm;
+                                margin: 1.5cm;
                                 size: A4;
                             }
                             body { 
                                 font-family: Arial, sans-serif; 
                                 line-height: 1.4;
-                                color: #333;
+                                color: #000;
+                                font-size: 12px;
                             }
-                            .header { 
-                                text-align: center; 
-                                padding: 20px;
-                                border-bottom: 2px solid #3498db;
-                                margin-bottom: 20px;
+                            h1, h2, h3 { 
+                                color: #333; 
+                                page-break-after: avoid;
                             }
                             .section { 
-                                margin: 20px 0; 
-                                padding: 15px;
+                                margin: 15px 0; 
                                 page-break-inside: avoid;
                             }
                             img {
@@ -1135,17 +1294,21 @@ def show_report_download_section(html_report, formats, title):
                             table {
                                 width: 100%;
                                 border-collapse: collapse;
-                                margin: 10px 0;
+                                font-size: 10px;
                             }
                             th, td {
-                                padding: 8px;
-                                border: 1px solid #ddd;
-                                text-align: left;
+                                padding: 6px;
+                                border: 1px solid #ccc;
                             }
                         '''
                         
+                        # Generate PDF with minimal options
                         css = CSS(string=css_string)
-                        pdf_data = html_doc.write_pdf(stylesheets=[css])
+                        pdf_data = html_doc.write_pdf(
+                            stylesheets=[css],
+                            optimize_images=True,
+                            presentational_hints=True
+                        )
                         
                         st.download_button(
                             label="📑 Download PDF Report",
@@ -1155,21 +1318,218 @@ def show_report_download_section(html_report, formats, title):
                             use_container_width=True
                         )
                         
-                    except ImportError:
-                        st.warning("⚠️ PDF generation not available. WeasyPrint dependency missing.")
-                        st.markdown("**Alternative:** Download the HTML report and print to PDF using your browser.")
+                    except ImportError as e:
+                        # Production fallback - disable PDF generation
+                        st.warning("⚠️ PDF generation not available in this environment.")
+                        st.info("""
+                        **💡 Browser-based PDF Alternative:**
+                        1. Download the HTML report below
+                        2. Open the HTML file in your browser
+                        3. Press `Ctrl+P` (Windows) or `Cmd+P` (Mac)
+                        4. Select "Save as PDF" as destination
+                        """)
                         
                     except Exception as pdf_error:
-                        st.error(f"PDF generation failed: {str(pdf_error)}")
-                        st.markdown("**Alternative:** Download the HTML report and convert using your browser:")
-                        st.markdown("1. Download HTML report")
-                        st.markdown("2. Open in browser")
-                        st.markdown("3. Print → Save as PDF")
+                        error_msg = str(pdf_error)
+                        if "translation_unit_or_empty" in error_msg or "pycparser" in error_msg:
+                            st.warning("⚠️ PDF generation unavailable due to system dependency issues.")
+                            st.info("This is a known issue with WeasyPrint in containerized environments.")
+                        else:
+                            st.error(f"PDF generation failed: {error_msg}")
+                        
+                        st.markdown("**📄 Alternative PDF Methods:**")
+                        st.markdown("1. **Browser method:** Download HTML → Open in browser → Print → Save as PDF")
+                        st.markdown("2. **Online converter:** Use services like HTML-to-PDF.net with the HTML file")
+                        st.markdown("3. **Local tools:** Use wkhtmltopdf or Puppeteer if available locally")
                         
             except Exception as e:
-                st.error(f"PDF download setup error: {str(e)}")
+                st.warning(f"PDF setup error: {str(e)}")
+                st.info("PDF generation temporarily unavailable. HTML report is available for download.")
     
     st.markdown('</div>', unsafe_allow_html=True)
+
+def show_diagnostics_page():
+    """System diagnostics page for troubleshooting production issues"""
+    
+    st.title("🔧 System Diagnostics")
+    st.markdown("Diagnose and troubleshoot system issues")
+    
+    # Environment Detection
+    st.markdown("### 🌐 Environment Information")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        try:
+            import os
+            import socket
+            import platform
+            import psutil
+            
+            # Environment details
+            hostname = socket.gethostname()
+            is_cloud_run = os.getenv('K_SERVICE') is not None
+            memory_gb = psutil.virtual_memory().total / (1024**3)
+            cpu_count = psutil.cpu_count()
+            
+            st.metric("Environment", "Cloud Run" if is_cloud_run else "Local/Other")
+            st.metric("Hostname", hostname)
+            st.metric("Memory (GB)", f"{memory_gb:.1f}")
+            st.metric("CPU Cores", cpu_count)
+            
+        except Exception as e:
+            st.error(f"Error reading environment: {e}")
+    
+    with col2:
+        try:
+            import sys
+            st.metric("Python Version", f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}")
+            st.metric("Platform", platform.system())
+            st.metric("Architecture", platform.machine())
+            
+            # Cloud Run specific variables
+            k_service = os.getenv('K_SERVICE', 'Not set')
+            gcp_project = os.getenv('GOOGLE_CLOUD_PROJECT', 'Not set')
+            st.write(f"**K_SERVICE:** {k_service}")
+            st.write(f"**GCP_PROJECT:** {gcp_project}")
+            
+        except Exception as e:
+            st.error(f"Error reading system info: {e}")
+    
+    # Dependency Status
+    st.markdown("### 📦 Dependency Status")
+    
+    if st.button("🔍 Run Dependency Check"):
+        with st.spinner("Checking dependencies..."):
+            dependency_status = check_dependencies()
+            
+            if dependency_status['core_available']:
+                st.success("✅ Core dependencies are available")
+            else:
+                st.error("❌ Core dependencies are missing")
+            
+            if dependency_status['issues']:
+                st.warning("⚠️ Issues found:")
+                for issue in dependency_status['issues']:
+                    st.write(f"- {issue}")
+            else:
+                st.success("✅ All dependencies are working correctly")
+    
+    # Module Loading Test
+    st.markdown("### 🧪 Module Loading Test")
+    
+    if st.button("🔬 Test Module Loading"):
+        with st.spinner("Testing module loading..."):
+            try:
+                # Test individual imports
+                tests = [
+                    ("pandas", lambda: __import__('pandas')),
+                    ("numpy", lambda: __import__('numpy')),
+                    ("matplotlib", lambda: __import__('matplotlib.pyplot')),
+                    ("scikit-learn", lambda: __import__('sklearn')),
+                    ("sdv", lambda: __import__('sdv.single_table')),
+                    ("umap", lambda: __import__('umap')),
+                    ("weasyprint", lambda: __import__('weasyprint')),
+                    ("google-cloud-aiplatform", lambda: __import__('google.cloud.aiplatform')),
+                ]
+                
+                results = []
+                for name, test_func in tests:
+                    try:
+                        test_func()
+                        results.append((name, "✅ OK", None))
+                    except Exception as e:
+                        results.append((name, "❌ FAILED", str(e)))
+                
+                # Display results
+                for name, status, error in results:
+                    if error:
+                        st.write(f"{status} **{name}**: {error}")
+                    else:
+                        st.write(f"{status} **{name}**")
+                        
+            except Exception as e:
+                st.error(f"Error during module testing: {e}")
+    
+    # Memory Usage
+    st.markdown("### 💾 Memory Usage")
+    
+    if st.button("📊 Check Memory Usage"):
+        try:
+            import psutil
+            memory = psutil.virtual_memory()
+            
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric("Total Memory", f"{memory.total / (1024**3):.1f} GB")
+            with col2:
+                st.metric("Available Memory", f"{memory.available / (1024**3):.1f} GB")
+            with col3:
+                st.metric("Memory Usage", f"{memory.percent:.1f}%")
+            
+            # Progress bar
+            st.progress(memory.percent / 100)
+            
+            if memory.percent > 80:
+                st.warning("⚠️ High memory usage detected")
+            elif memory.percent > 90:
+                st.error("❌ Critical memory usage")
+            else:
+                st.success("✅ Memory usage is normal")
+                
+        except Exception as e:
+            st.error(f"Error checking memory: {e}")
+    
+    # Troubleshooting Guide
+    st.markdown("### 🆘 Troubleshooting Guide")
+    
+    with st.expander("Common Production Issues & Solutions"):
+        st.markdown("""
+        **🚨 404 Errors on Report Downloads:**
+        - **Cause**: Module loading failures or memory issues
+        - **Solution**: Check dependency status above and ensure all modules load correctly
+        
+        **⚠️ PDF Generation Fails:**
+        - **Cause**: WeasyPrint system dependencies missing
+        - **Solution**: Use HTML download and convert in browser
+        
+        **🐌 Slow Performance:**
+        - **Cause**: Limited Cloud Run resources or large datasets
+        - **Solution**: Use smaller datasets or enable production optimizations
+        
+        **❌ Module Import Errors:**
+        - **Cause**: Missing dependencies in container
+        - **Solution**: Check the module loading test above for specific failures
+        
+        **💥 Out of Memory Errors:**
+        - **Cause**: Large datasets exceeding Cloud Run memory limits
+        - **Solution**: Process smaller datasets or contact admin for resource increase
+        """)
+    
+    # Quick Actions
+    st.markdown("### ⚡ Quick Actions")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        if st.button("🔄 Clear Cache"):
+            if 'heavy_modules' in st.session_state:
+                del st.session_state['heavy_modules']
+            if 'uploaded_data' in st.session_state:
+                del st.session_state['uploaded_data']
+            if 'synthetic_data' in st.session_state:
+                del st.session_state['synthetic_data']
+            st.success("✅ Cache cleared")
+    
+    with col2:
+        if st.button("🧪 Force Reload Modules"):
+            if 'heavy_modules' in st.session_state:
+                del st.session_state['heavy_modules']
+            modules = load_heavy_modules()
+            if modules:
+                st.success("✅ Modules reloaded successfully")
+            else:
+                st.error("❌ Module reload failed")
 
 def create_batch_download_package(results):
     """Create downloadable package for batch results"""

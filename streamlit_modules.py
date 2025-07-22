@@ -159,14 +159,14 @@ def generate_synthetic_data(data: pd.DataFrame, params: Dict, selected_columns: 
             model_type = params.get('model_type', 'Gaussian Copula')
             
             if model_type == 'CTGAN':
-                synthesizer = CTGANSynthesizer(metadata, epochs=params.get('epochs', 100))
+                synthesizer = CTGANSynthesizer(metadata, epochs=params.get('epochs', 300))
             elif model_type == 'CopulaGAN':
-                synthesizer = CopulaGANSynthesizer(metadata, epochs=params.get('epochs', 100))
+                synthesizer = CopulaGANSynthesizer(metadata, epochs=params.get('epochs', 300))
             elif model_type == 'TabularGAN':
                 # Use TVAE as TabularGAN equivalent
-                synthesizer = TVAESynthesizer(metadata, epochs=params.get('epochs', 100))
+                synthesizer = TVAESynthesizer(metadata, epochs=params.get('epochs', 300))
             elif model_type == 'TVAE':
-                synthesizer = TVAESynthesizer(metadata, epochs=params.get('epochs', 100))
+                synthesizer = TVAESynthesizer(metadata, epochs=params.get('epochs', 300))
             else:
                 # Gaussian Copula - fast and reliable for most data types
                 synthesizer = GaussianCopulaSynthesizer(metadata)
@@ -365,6 +365,12 @@ def generate_comparison_visualizations(original_data: pd.DataFrame, synthetic_da
         import matplotlib
         matplotlib.use('Agg')  # Use non-interactive backend
         import matplotlib.pyplot as plt
+        
+        # Configure matplotlib to use safe fonts
+        plt.rcParams['font.family'] = ['DejaVu Sans', 'Arial', 'sans-serif']
+        plt.rcParams['font.size'] = 10
+        plt.rcParams['axes.unicode_minus'] = False
+        
         from sklearn.decomposition import PCA
         from sklearn.manifold import TSNE
         import umap
@@ -420,81 +426,103 @@ def generate_comparison_visualizations(original_data: pd.DataFrame, synthetic_da
         # 1. PCA Analysis (Top Left)
         ax1 = plt.subplot(2, 2, 1)
         
-        # Calculate PCA
-        pca = PCA(n_components=2)
-        pca_original = pca.fit_transform(data_processed)
-        pca_synthetic = pca.transform(synth_data_processed)
-        
-        # Plot PCA with proper styling
-        ax1.scatter(pca_original[:, 0], pca_original[:, 1], 
-                   c=original_color, alpha=0.6, s=20, label='Original', edgecolors='none')
-        ax1.scatter(pca_synthetic[:, 0], pca_synthetic[:, 1], 
-                   c=synthetic_color, alpha=0.6, s=20, label='Synthetic', edgecolors='none')
-        
-        ax1.set_title('PCA\nVariance: {:.1%}, {:.1%}'.format(
-            pca.explained_variance_ratio_[0], pca.explained_variance_ratio_[1]), 
-            fontsize=12, fontweight='bold')
-        ax1.set_xlabel('PC 1 ({:.1%} variance)'.format(pca.explained_variance_ratio_[0]))
-        ax1.set_ylabel('PC 2 ({:.1%} variance)'.format(pca.explained_variance_ratio_[1]))
-        ax1.legend(loc='upper right')
-        ax1.grid(True, alpha=0.3)
+        try:
+            # Calculate PCA
+            pca = PCA(n_components=2)
+            pca_original = pca.fit_transform(data_processed)
+            pca_synthetic = pca.transform(synth_data_processed)
+            
+            # Plot PCA with proper styling
+            ax1.scatter(pca_original[:, 0], pca_original[:, 1], 
+                       c=original_color, alpha=0.6, s=20, label='Original', edgecolors='none')
+            ax1.scatter(pca_synthetic[:, 0], pca_synthetic[:, 1], 
+                       c=synthetic_color, alpha=0.6, s=20, label='Synthetic', edgecolors='none')
+            
+            ax1.set_title('PCA\nVariance: {:.1%}, {:.1%}'.format(
+                pca.explained_variance_ratio_[0], pca.explained_variance_ratio_[1]), 
+                fontsize=12, fontweight='bold')
+            ax1.set_xlabel('PC 1 ({:.1%} variance)'.format(pca.explained_variance_ratio_[0]))
+            ax1.set_ylabel('PC 2 ({:.1%} variance)'.format(pca.explained_variance_ratio_[1]))
+            ax1.legend(loc='upper right')
+            ax1.grid(True, alpha=0.3)
+            print("PCA plot generated successfully")
+        except Exception as e:
+            print(f"PCA plot failed: {e}")
+            ax1.text(0.5, 0.5, f'PCA Error:\n{str(e)[:50]}...', ha='center', va='center', transform=ax1.transAxes)
         
         # 2. t-SNE Analysis (Top Right)
         ax2 = plt.subplot(2, 2, 2)
         
-        # Calculate t-SNE with appropriate parameters
-        min_perplexity = min(30, len(data_processed) // 4)
-        perplexity = max(5, min_perplexity)
-        
-        tsne = TSNE(n_components=2, perplexity=perplexity, random_state=42, 
-                   max_iter=1000, learning_rate='auto', init='random')
-        
-        # Combine data for t-SNE to ensure consistent embedding
-        combined_data = np.vstack([data_processed, synth_data_processed])
-        tsne_combined = tsne.fit_transform(combined_data)
-        
-        # Split back to original and synthetic
-        n_original = len(data_processed)
-        tsne_original = tsne_combined[:n_original]
-        tsne_synthetic = tsne_combined[n_original:]
-        
-        ax2.scatter(tsne_original[:, 0], tsne_original[:, 1], 
-                   c=original_color, alpha=0.6, s=20, label='Original', edgecolors='none')
-        ax2.scatter(tsne_synthetic[:, 0], tsne_synthetic[:, 1], 
-                   c=synthetic_color, alpha=0.6, s=20, label='Synthetic', edgecolors='none')
-        
-        ax2.set_title('t-SNE\nPerplexity: {}'.format(perplexity), 
-                     fontsize=12, fontweight='bold')
-        ax2.set_xlabel('t-SNE 1')
-        ax2.set_ylabel('t-SNE 2')
-        ax2.legend(loc='upper right')
-        ax2.grid(True, alpha=0.3)
+        try:
+            # Calculate t-SNE with appropriate parameters
+            min_perplexity = min(30, len(data_processed) // 4)
+            perplexity = max(5, min_perplexity)
+            
+            # Handle different scikit-learn versions for t-SNE parameters
+            try:
+                # Try with max_iter (newer versions)
+                tsne = TSNE(n_components=2, perplexity=perplexity, random_state=42, 
+                           max_iter=1000, learning_rate=200.0)
+            except TypeError:
+                # Fallback to n_iter (older versions)
+                tsne = TSNE(n_components=2, perplexity=perplexity, random_state=42, 
+                           n_iter=1000, learning_rate=200.0)
+            
+            # Combine data for t-SNE to ensure consistent embedding
+            combined_data = np.vstack([data_processed, synth_data_processed])
+            tsne_combined = tsne.fit_transform(combined_data)
+            
+            # Split back to original and synthetic
+            n_original = len(data_processed)
+            tsne_original = tsne_combined[:n_original]
+            tsne_synthetic = tsne_combined[n_original:]
+            
+            ax2.scatter(tsne_original[:, 0], tsne_original[:, 1], 
+                       c=original_color, alpha=0.6, s=20, label='Original', edgecolors='none')
+            ax2.scatter(tsne_synthetic[:, 0], tsne_synthetic[:, 1], 
+                       c=synthetic_color, alpha=0.6, s=20, label='Synthetic', edgecolors='none')
+            
+            ax2.set_title('t-SNE\nPerplexity: {}'.format(perplexity), 
+                         fontsize=12, fontweight='bold')
+            ax2.set_xlabel('t-SNE 1')
+            ax2.set_ylabel('t-SNE 2')
+            ax2.legend(loc='upper right')
+            ax2.grid(True, alpha=0.3)
+            print("t-SNE plot generated successfully")
+        except Exception as e:
+            print(f"t-SNE plot failed: {e}")
+            ax2.text(0.5, 0.5, f't-SNE Error:\n{str(e)[:50]}...', ha='center', va='center', transform=ax2.transAxes)
         
         # 3. UMAP Analysis (Bottom Left)
         ax3 = plt.subplot(2, 2, 3)
         
-        # Calculate UMAP with appropriate parameters
-        n_neighbors = min(15, len(data_processed) // 3)
-        n_neighbors = max(2, n_neighbors)
-        
-        reducer = umap.UMAP(n_neighbors=n_neighbors, random_state=42, 
-                          min_dist=0.1, n_components=2)
-        
-        # Fit on original data and transform both
-        umap_original = reducer.fit_transform(data_processed)
-        umap_synthetic = reducer.transform(synth_data_processed)
-        
-        ax3.scatter(umap_original[:, 0], umap_original[:, 1], 
-                   c=original_color, alpha=0.6, s=20, label='Original', edgecolors='none')
-        ax3.scatter(umap_synthetic[:, 0], umap_synthetic[:, 1], 
-                   c=synthetic_color, alpha=0.6, s=20, label='Synthetic', edgecolors='none')
-        
-        ax3.set_title('UMAP\nNeighbors: {}'.format(n_neighbors), 
-                     fontsize=12, fontweight='bold')
-        ax3.set_xlabel('UMAP 1')
-        ax3.set_ylabel('UMAP 2')
-        ax3.legend(loc='upper right')
-        ax3.grid(True, alpha=0.3)
+        try:
+            # Calculate UMAP with appropriate parameters
+            n_neighbors = min(15, len(data_processed) // 3)
+            n_neighbors = max(2, n_neighbors)
+            
+            reducer = umap.UMAP(n_neighbors=n_neighbors, random_state=42, 
+                              min_dist=0.1, n_components=2)
+            
+            # Fit on original data and transform both
+            umap_original = reducer.fit_transform(data_processed)
+            umap_synthetic = reducer.transform(synth_data_processed)
+            
+            ax3.scatter(umap_original[:, 0], umap_original[:, 1], 
+                       c=original_color, alpha=0.6, s=20, label='Original', edgecolors='none')
+            ax3.scatter(umap_synthetic[:, 0], umap_synthetic[:, 1], 
+                       c=synthetic_color, alpha=0.6, s=20, label='Synthetic', edgecolors='none')
+            
+            ax3.set_title('UMAP\nNeighbors: {}'.format(n_neighbors), 
+                         fontsize=12, fontweight='bold')
+            ax3.set_xlabel('UMAP 1')
+            ax3.set_ylabel('UMAP 2')
+            ax3.legend(loc='upper right')
+            ax3.grid(True, alpha=0.3)
+            print("UMAP plot generated successfully")
+        except Exception as e:
+            print(f"UMAP plot failed: {e}")
+            ax3.text(0.5, 0.5, f'UMAP Error:\n{str(e)[:50]}...', ha='center', va='center', transform=ax3.transAxes)
         
         # 4. Statistical Similarity Summary (Bottom Right)
         ax4 = plt.subplot(2, 2, 4)
@@ -602,22 +630,49 @@ def generate_comparison_visualizations(original_data: pd.DataFrame, synthetic_da
     return visualizations
 
 
-def analyze_data_with_bedrock(original_data: pd.DataFrame, synthetic_data: pd.DataFrame, synthesis_model: str = "Gaussian Copula") -> str:
-    """Generate detailed analysis using AWS Bedrock Claude model"""
+def analyze_data_with_gemini(original_data: pd.DataFrame, synthetic_data: pd.DataFrame, synthesis_model: str = "Gaussian Copula") -> str:
+
     try:
-        import boto3
+        import vertexai
+        from vertexai.generative_models import GenerativeModel
         import json
+        import os
+        import subprocess
+        import datetime
+        from google.auth.credentials import Credentials
+        from google.oauth2.credentials import Credentials as OAuth2Credentials
         
-        # Initialize Bedrock client
-        bedrock = boto3.client(
-            'bedrock-runtime',
-            region_name='ap-southeast-2'
-        )
+        # Get configuration from environment
+        project_id = os.getenv('GOOGLE_CLOUD_PROJECT', 'synthergy-0')
+        location = os.getenv('VERTEX_AI_LOCATION', 'us-central1')
+        
+        # Try to get credentials using gcloud access token as fallback
+        credentials = None
+        try:
+            from google.auth import default
+            credentials, _ = default()
+        except Exception:
+            # Fallback: use gcloud access token
+            try:
+                result = subprocess.run(['gcloud', 'auth', 'print-access-token'], 
+                                      capture_output=True, text=True, check=True)
+                access_token = result.stdout.strip()
+                if access_token:
+                    credentials = OAuth2Credentials(token=access_token)
+            except Exception as e:
+                print(f"Failed to get credentials: {e}")
+        
+        # Initialize Vertex AI
+        if credentials:
+            vertexai.init(project=project_id, location=location, credentials=credentials)
+        else:
+            vertexai.init(project=project_id, location=location)
+        model = GenerativeModel('gemini-2.5-pro')
         
         # Prepare data summary for analysis
         orig_summary = {
             'rows': len(original_data),
-            'columns': len(original_data.columns), # Use original column count
+            'columns': len(original_data.columns),
             'column_types': original_data.dtypes.astype(str).to_dict(),
             'missing_values': original_data.isnull().sum().to_dict(),
             'numeric_stats': original_data.describe().to_dict() if len(original_data.select_dtypes(include=['number']).columns) > 0 else {}
@@ -625,15 +680,19 @@ def analyze_data_with_bedrock(original_data: pd.DataFrame, synthetic_data: pd.Da
         
         synth_summary = {
             'rows': len(synthetic_data),
-            'columns': len(synthetic_data.columns), # Use synthetic column count
+            'columns': len(synthetic_data.columns),
             'column_types': synthetic_data.dtypes.astype(str).to_dict(),
             'missing_values': synthetic_data.isnull().sum().to_dict(),
             'numeric_stats': synthetic_data.describe().to_dict() if len(synthetic_data.select_dtypes(include=['number']).columns) > 0 else {},
-            'synthesis_model': synthesis_model  # Include the synthesis model used
+            'synthesis_model': synthesis_model
         }
         
+        # Add current datetime context for Gemini
+        current_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        
         prompt = f"""
-        As a data science expert, analyze this synthetic data generation report and provide comprehensive insights:
+        <p> Generated on: {current_time} </p>
+
 
         ORIGINAL DATA SUMMARY:
         {json.dumps(orig_summary, indent=2)}
@@ -669,44 +728,45 @@ def analyze_data_with_bedrock(original_data: pd.DataFrame, synthetic_data: pd.Da
            - Alternative models to consider and their expected benefits
            - Best practices for deploying {synthesis_model}-generated data
            - Potential risks specific to {synthesis_model} approach
-        <h3> Conclusion </h3>
-        - Provide an concise summary of the analysis
-        - Provide an assessement for the use of the synthetic data
-        - Provide an assessment for the use of the synthesis model
-        - Provide an assessment for the use of the data
-        - Provide an assessment for the use of the analysis
-        - Provide an assessment for the use of the report
 
-        Format your response in HTML with proper headings and structure for inclusion in a report.
+        6. **Conclusion**:
+           - Provide a concise summary of the analysis, synthetic data, and synthesis model performance.
+
+        Please format your response as structured HTML with proper headings (remove line '''html''' from the beginning and end of the response).
+        DO NOT include prompt questions in your response. The questions are to indicate what user need to know, it is not part of the response.
         """
         
-        body = {
-            "anthropic_version": "bedrock-2023-05-31",
-            "max_tokens": 6000,
-            "messages": [
-                {
-                    "role": "user",
-                    "content": prompt
-                }
-            ]
-        }
-        
-        response = bedrock.invoke_model(
-            modelId='anthropic.claude-3-5-sonnet-20241022-v2:0',
-            body=json.dumps(body),
-            contentType='application/json'
+        response = model.generate_content(
+            prompt,
+            generation_config={
+                'max_output_tokens': 6000,
+                'temperature': 0.7
+            }
         )
         
-        response_body = json.loads(response['body'].read())
-        analysis = response_body['content'][0]['text']
+        analysis = response.text
+        
+        # Post-process to remove markdown code block markers that Gemini sometimes includes
+        # Strip ```html from the beginning
+        if analysis.strip().startswith('```html'):
+            analysis = analysis.strip()[7:]  # Remove '```html'
+        elif analysis.strip().startswith('```'):
+            analysis = analysis.strip()[3:]   # Remove '```'
+        
+        # Strip ``` from the end
+        if analysis.strip().endswith('```'):
+            analysis = analysis.strip()[:-3]  # Remove trailing '```'
+        
+        # Clean up any remaining whitespace
+        analysis = analysis.strip()
         
         return analysis
         
     except ImportError:
-        # Fallback to comprehensive analysis when boto3 is not available
+        # Fallback to comprehensive analysis when google-genai is not available
         return generate_comprehensive_analysis(original_data, synthetic_data)
     except Exception as e:
-        # Fallback to comprehensive analysis when Bedrock is not available
+        # Fallback to comprehensive analysis when Gemini is not available
         fallback_analysis = generate_comprehensive_analysis(original_data, synthetic_data)
         return f"""
         <div style="background: #fff3cd; padding: 10px; border-radius: 5px; border-left: 4px solid #ffc107; margin: 10px 0;">
@@ -720,7 +780,7 @@ def generate_comprehensive_analysis(original_data: pd.DataFrame, synthetic_data:
     """
     Generate comprehensive analysis using built-in algorithms
     """
-    analysis = "<h3>Comprehensive Data Analysis</h3>"
+    analysis = "<h3>Data Analysis</h3>"
     
     # Data shape analysis
     orig_rows, orig_cols = original_data.shape
@@ -941,7 +1001,7 @@ def generate_enhanced_html_report(
     original_data: pd.DataFrame, 
     synthetic_data: pd.DataFrame,
     title: str = "Synthetic Data Quality Report",
-    use_bedrock: bool = True,
+    use_gemini: bool = True,
     selected_columns: list = None,
     synthesis_model: str = "Gaussian Copula"
 ) -> str:
@@ -990,27 +1050,25 @@ def generate_enhanced_html_report(
         </div>
         """
         
-        # Generate Bedrock analysis only if explicitly requested
-        bedrock_analysis = ""
-        if use_bedrock:
-            print("Generating detailed analysis...")
+        # Generate Gemini analysis only if explicitly requested
+        gemini_analysis = ""
+        if use_gemini:
             try:
-                bedrock_analysis = analyze_data_with_bedrock(original_data, synthetic_data, synthesis_model)
+                print(f"Attempting Gemini analysis with {len(original_data)} original and {len(synthetic_data)} synthetic rows")
+                gemini_analysis = analyze_data_with_gemini(original_data, synthetic_data, synthesis_model)
+                if gemini_analysis and len(gemini_analysis) > 100:
+                    print("Gemini analysis completed successfully")
+                else:
+                    print("Gemini analysis returned empty or short response")
             except Exception as e:
-                print(f"Bedrock analysis warning: {e}")
-                bedrock_analysis = f"""
+                print(f"Gemini analysis failed: {e}")
+                gemini_analysis = f"""
                 <div style="background: #fff3cd; padding: 10px; border-radius: 5px; border-left: 4px solid #ffc107; margin: 10px 0;">
                     <p><strong>Note:</strong> Detailed AI analysis temporarily unavailable. Using built-in analysis instead.</p>
+                    <p><strong>Debug:</strong> {str(e)}</p>
                 </div>
                 {generate_comprehensive_analysis(original_data, synthetic_data)}
                 """
-        else:
-            print("Skipping detailed analysis for faster report generation...")
-            bedrock_analysis = """
-            <div style="background: #d1ecf1; padding: 10px; border-radius: 5px; border-left: 4px solid #bee5eb; margin: 10px 0;">
-                <p><strong>Fast Mode:</strong> Report generated in optimized mode. Enable 'Include Detailed Analysis' for comprehensive insights.</p>
-            </div>
-            """
         
         print("Assembling HTML report...")
         
@@ -1024,7 +1082,7 @@ def generate_enhanced_html_report(
             <meta name="viewport" content="width=device-width, initial-scale=1">
             <style>
                 body {{ 
-                    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
+                    font-family: 'Noto Sans', Arial, sans-serif; 
                     margin: 0; padding: 20px; 
                     background-color: white;
                     color: black;
@@ -1092,7 +1150,7 @@ def generate_enhanced_html_report(
                     transform: translateY(-2px);
                     box-shadow: 0 4px 15px rgba(0,0,0,0.1);
                 }}
-                h1, h2, h3 {{ 
+                h1, h2, h3, h4, h5, h6 {{ 
                     color: #2c3e50; 
                     margin-top: 0;
                 }}
@@ -1101,12 +1159,21 @@ def generate_enhanced_html_report(
                     margin-bottom: 10px; 
                     color: #2c3e50;
                 }}
-                h2 {{ 
+                /* Only apply border-bottom to main section h2 headings, not content h2s */
+                .section > h2, .metrics > h2, .analysis-section > h2, .gemini-analysis > h1 {{ 
                     color: #34495e; 
                     border-bottom: 2px solid #3498db; 
                     padding-bottom: 10px; 
                 }}
-                .bedrock-analysis {{
+                /* Content headings without borders */
+                .gemini-analysis h2, .gemini-analysis h3, .gemini-analysis h4 {{
+                    color: #2c3e50;
+                    border-bottom: none;
+                    padding-bottom: 0;
+                    margin-top: 20px;
+                    margin-bottom: 10px;
+                }}
+                .gemini-analysis {{
                     background: #ffffff;
                     color: black;
                     padding: 25px;
@@ -1260,13 +1327,13 @@ def generate_enhanced_html_report(
             </div>
         """
         
-        # Add Bedrock analysis if available
-        if bedrock_analysis:
+        # Add Gemini analysis if available
+        if gemini_analysis:
             html_report += f"""
-                <div class="bedrock-analysis">
-                    <h2 style="color: #2c3e50;">Detailed Analysis</h2>
+                <div class="gemini-analysis">
+                    <h1>Detailed Analysis</h1>
                     <div style="background: rgba(255,255,255,0.1); padding: 20px; border-radius: 8px; margin-top: 15px;">
-                        {bedrock_analysis}
+                        {gemini_analysis}
                     </div>
                 </div>
             """
@@ -1291,7 +1358,7 @@ def generate_enhanced_html_report(
         return f"""
         <html>
         <head><title>Error Generating Report</title></head>
-        <body style="font-family: Arial, sans-serif; padding: 20px;">
+        <body style="font-family: 'Noto Sans', Arial, sans-serif; padding: 20px;">
             <h1 style="color: #dc3545;">Report Generation Error</h1>
             <div style="background: #f8d7da; padding: 15px; border-radius: 5px; border-left: 4px solid #dc3545;">
                 <p><strong>Error:</strong> {str(e)}</p>
@@ -1305,137 +1372,21 @@ def generate_enhanced_html_report(
 def generate_pdf_report(html_content: str) -> bytes:
     """Convert HTML report to PDF bytes for download"""
     try:
-        from weasyprint import HTML, CSS
-        import io
-        
+        from weasyprint import HTML
         html_doc = HTML(string=html_content)
-        
-        # Enhanced CSS for PDF
-        css = CSS(string='''
-            @page {
-                margin: 1.5cm;
-                @top-center {
-                    content: "Synthetic Data Quality Report";
-                    font-size: 10pt;
-                    color: #666;
-                }
-                @bottom-center {
-                    content: "Page " counter(page) " of " counter(pages);
-                    font-size: 10pt;
-                    color: #666;
-                }
-            }
-            body {
-                font-family: 'Segoe UI', Arial, sans-serif;
-                line-height: 1.4;
-                color: #333;
-            }
-            .container {
-                max-width: none;
-                margin: 0;
-                box-shadow: none;
-            }
-            img {
-                max-width: 100%;
-                height: auto;
-                page-break-inside: avoid;
-            }
-            .section {
-                page-break-inside: avoid;
-                margin: 15px 0;
-            }
-            .visualization {
-                page-break-inside: avoid;
-                margin: 20px 0;
-            }
-            h1, h2 {
-                page-break-after: avoid;
-            }
-        ''')
-        
-        pdf_bytes = html_doc.write_pdf(stylesheets=[css])
+        pdf_bytes = html_doc.write_pdf()
         return pdf_bytes
-        
-    except Exception as e:
-        st.error(f"PDF generation failed: {str(e)}")
+    except ImportError:
+        return None
+    except Exception:
         return None
 
 def convert_html_to_pdf(html_content: str, output_path: str) -> bool:
-    """
-    Convert HTML content to PDF using WeasyPrint with improved styling
-    """
+    """Convert HTML content to PDF using WeasyPrint"""
     try:
-        from weasyprint import HTML, CSS
-        
+        from weasyprint import HTML
         html_doc = HTML(string=html_content)
-        
-        # Enhanced CSS with proper calculations and values
-        css = CSS(string='''
-            body {
-                font-family: Arial, sans-serif;
-                line-height: 1.6;
-                color: #333;
-                margin: 0;
-                padding: 1rem;
-            }
-            
-            h1, h2, h3, h4, h5, h6 {
-                margin-top: 2rem;
-                margin-bottom: 1rem;
-                page-break-after: avoid;
-            }
-            
-            table {
-                width: 100%;
-                border-collapse: collapse;
-                margin: 1rem 0;
-            }
-            
-            th, td {
-                padding: 0.5rem;
-                border: 1px solid #ddd;
-                text-align: left;
-            }
-            
-            img, figure {
-                max-width: 100%;
-                height: auto;
-                margin: 1rem 0;
-            }
-            
-            @page {
-                margin: 2.5cm;
-                @top-center {
-                    content: "Synthetic Data Quality Report";
-                    font-size: 10pt;
-                }
-                @bottom-center {
-                    content: "Page " counter(page) " of " counter(pages);
-                    font-size: 10pt;
-                }
-            }
-            
-            .visualization-container {
-                page-break-inside: avoid;
-                margin: 2rem 0;
-            }
-            
-            .metric-card {
-                padding: 1rem;
-                margin: 1rem 0;
-                border: 1px solid #ddd;
-                break-inside: avoid;
-            }
-        ''')
-        
-        html_doc.write_pdf(
-            output_path,
-            stylesheets=[css],
-            optimize_size=('fonts', 'images'),
-            presentational_hints=True
-        )
+        html_doc.write_pdf(output_path)
         return True
-        
-    except Exception as e:
-        print(f"PDF conversion failed: {str(e)}")
+    except Exception:
         return False 

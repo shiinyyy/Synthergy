@@ -23,13 +23,12 @@ share/python-wheels/
 MANIFEST
 
 # Virtual Environments
-ydata/
 3.12/
 venv/
 env/
-ENV/
 env.bak/
 venv.bak/
+public/
 
 # IDE
 .vscode/
@@ -106,12 +105,14 @@ synthetic_data_report.pdf
 index.html
 
 # Full requirements and extra docs
-requirements_full.txt
 README_STREAMLIT.md
 
-# Cloud deployment files
+# Deployment files
 GOOGLE_CLOUD_SETUP.md
 deploy-google-cloud-run.sh
 Dockerfile
 setup-aws.sh
 deploy.sh
+setup_vertex_ai.sh
+debugging_logs.md
+deployment_logs.md
